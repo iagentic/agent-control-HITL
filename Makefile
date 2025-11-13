@@ -1,4 +1,4 @@
-.PHONY: help sync sync-all sync-models sync-server sync-sdk run-server server test test-models test-server test-sdk lint lint-fix typecheck build build-models build-server build-sdk publish publish-models publish-server publish-sdk
+.PHONY: help sync sync-all sync-models sync-server sync-sdk run-server server test test-models test-server test-sdk lint lint-fix typecheck build build-models build-server build-sdk publish publish-models publish-server publish-sdk hooks-install hooks-uninstall prepush
 
 # Workspace package names
 PACK_MODELS := agent-protect-models
@@ -36,6 +36,11 @@ help:
 	@echo "  make publish         - publish all members (ensure credentials configured)"
 	@echo "  make build-models | build-server | build-sdk"
 	@echo "  make publish-models | publish-server | publish-sdk"
+	@echo ""
+	@echo "Git hooks:"
+	@echo "  make hooks-install   - install repo-local git hooks (pre-push)"
+	@echo "  make hooks-uninstall - restore default .git/hooks"
+	@echo "  make prepush         - run pre-push checks locally"
 
 # ---------------------------
 # Setup
@@ -124,3 +129,21 @@ publish-server:
 
 publish-sdk:
 	cd $(SDK_DIR) && uv publish
+
+# ---------------------------
+# Git hooks
+# ---------------------------
+
+HOOKS_DIR := .githooks
+
+hooks-install:
+	git config core.hooksPath $(HOOKS_DIR)
+	chmod +x $(HOOKS_DIR)/pre-push
+	@echo "Installed git hooks from $(HOOKS_DIR)"
+
+hooks-uninstall:
+	git config --unset core.hooksPath || true
+	@echo "Restored default git hooks path (.git/hooks)"
+
+prepush:
+	bash $(HOOKS_DIR)/pre-push
