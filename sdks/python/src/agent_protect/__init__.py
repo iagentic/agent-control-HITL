@@ -19,6 +19,7 @@ Usage:
     @protect('input-validation', input='message')
     async def handle_message(message: str):
         return f"Processed: {message}"
+        
     
     # Or use the client directly for custom checks
     async with agent_protect.AgentProtectClient() as client:
