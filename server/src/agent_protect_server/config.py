@@ -9,8 +9,13 @@ class AgentProtectServerDatabaseConfig(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         env_prefix="DB_",
+        extra="ignore",  # Ignore extra fields in .env
     )
 
+    # Allow direct URL override for SQLite in local dev
+    url: str | None = None
+
+    # PostgreSQL settings (only used if url is not set)
     host: str = "localhost"
     port: int = 5432
     user: str = "agent_protect"
@@ -18,8 +23,10 @@ class AgentProtectServerDatabaseConfig(BaseSettings):
     database: str = "agent_protect"
     driver: str = "psycopg"
 
-    @property
-    def url(self) -> str:
+    def get_url(self) -> str:
+        """Get database URL, preferring explicit url if set."""
+        if self.url:
+            return self.url
         return (
             f"postgresql+{self.driver}://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
         )
@@ -34,6 +41,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # Ignore extra fields in .env (like DB_* fields)
     )
 
     # Server settings

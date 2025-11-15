@@ -12,6 +12,7 @@ dependencies = [
     "SQLAlchemy>=2.0.0",
     "psycopg[binary]>=3.1",
     "greenlet>=3.0",
+    "aiosqlite>=0.19.0",
 ]
 authors = [
     {name = "Agent Protect Team"}

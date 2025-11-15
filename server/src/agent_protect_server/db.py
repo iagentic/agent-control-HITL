@@ -11,10 +11,12 @@ class Base(DeclarativeBase):
     pass
 
 
+db_url = db_config.get_url()
+
 engine = create_engine(
-    db_config.url,
+    db_url,
     echo=False,
-    connect_args={"check_same_thread": False} if db_config.url.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False} if db_url.startswith("sqlite") else {},
 )
 
 SessionLocal = sessionmaker(
@@ -26,7 +28,7 @@ SessionLocal = sessionmaker(
 
 # Async SQLAlchemy setup
 async_engine = create_async_engine(
-    db_config.url,
+    db_url,
     echo=False,
 )
 

@@ -16,7 +16,7 @@ target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:
-    url = db_config.url
+    url = db_config.get_url()  # Use get_url() method
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -28,7 +28,7 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    url = db_config.url
+    url = db_config.get_url()  # Use get_url() method
     connectable = create_engine(url, future=True, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
