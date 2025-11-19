@@ -3,7 +3,7 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from agent_protect_models import HealthResponse, ProtectionRequest, ProtectionResponse
+from agent_protect_models import HealthResponse
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -11,6 +11,7 @@ from .config import settings
 from .endpoints.agents import router as agent_router
 from .endpoints.controls import router as control_router
 from .endpoints.policies import router as policy_router
+from .endpoints.protection import router as protection_router
 from .endpoints.rules import router as rule_router
 from .logging_utils import configure_logging
 
@@ -72,6 +73,7 @@ app.include_router(agent_router, prefix=api_v1_prefix)
 app.include_router(policy_router, prefix=api_v1_prefix)
 app.include_router(control_router, prefix=api_v1_prefix)
 app.include_router(rule_router, prefix=api_v1_prefix)
+app.include_router(protection_router, prefix=api_v1_prefix)
 
 # Health check at root level (common convention)
 @app.get(
@@ -93,32 +95,6 @@ async def health_check() -> HealthResponse:
     return HealthResponse(status="healthy", version="0.1.0")
 
 
-@app.post(
-    f"{api_v1_prefix}/protect",
-    response_model=ProtectionResponse,
-    tags=["protection"],
-    summary="Analyze content safety",
-    response_description="Safety analysis result",
-)
-async def protect(request: ProtectionRequest) -> ProtectionResponse:
-    """
-    Analyze content for safety and protection violations.
-
-    **Note**: This endpoint currently returns a placeholder response.
-    Actual protection logic should be implemented based on your requirements.
-
-    Args:
-        request: Content to analyze with optional context
-
-    Returns:
-        ProtectionResponse with safety status, confidence score, and reason
-    """
-    # TODO: Implement actual protection logic
-    return ProtectionResponse(
-        is_safe=True,
-        confidence=0.95,
-        reason="Content appears safe (placeholder implementation)",
-    )
 
 
 
