@@ -17,7 +17,6 @@ help:
 	@echo "  start-dependencies           - docker compose up -d (start local dependencies)"
 	@echo "  test                         - run server tests (uses DB_DATABASE=$(TEST_DB))"
 	@echo "  alembic-migrate MSG='message'  - autogenerate alembic revision"
-	@echo "  alembic-revision MSG='message' - create empty alembic revision"
 	@echo "  alembic-upgrade UP=head        - upgrade to revision"
 	@echo "  alembic-downgrade DOWN=-1      - downgrade to revision"
 	@echo "  alembic-current                - show current revision"
@@ -28,9 +27,6 @@ help:
 
 alembic-migrate:
 	$(ALEMBIC) revision --autogenerate -m "$(MSG)"
-
-alembic-revision:
-	$(ALEMBIC) revision -m "$(MSG)"
 
 alembic-upgrade:
 	$(ALEMBIC) upgrade $(UP)

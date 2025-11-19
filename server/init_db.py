@@ -13,13 +13,7 @@ async def init_db():
     """Create all database tables."""
     db_url = db_config.get_url()
     
-    # For SQLite with aiosqlite, we need to use sync engine for table creation
-    if db_url.startswith("sqlite+aiosqlite"):
-        sync_url = db_url.replace("sqlite+aiosqlite", "sqlite")
-    else:
-        sync_url = db_url
-    
-    engine = create_engine(sync_url, echo=True)
+    engine = create_engine(db_url, echo=True)
     
     print(f"Creating tables in database: {db_url}")
     Base.metadata.create_all(engine)

@@ -158,7 +158,7 @@ class AgentProtectClient:
             payload = {"content": content, "context": context}
 
         assert self._client is not None
-        response = await self._client.post("/protect", json=payload)
+        response = await self._client.post("/api/v1/protect", json=payload)
         response.raise_for_status()
 
         if MODELS_AVAILABLE:
@@ -212,7 +212,7 @@ class AgentProtectClient:
         if self._client is None:
             raise RuntimeError("Client not initialized. Use 'async with' context manager.")
         assert self._client is not None  # Help mypy understand
-        response = await self._client.post("/initAgent", json=payload)
+        response = await self._client.post("/api/v1/agents/initAgent", json=payload)
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
 
@@ -240,7 +240,7 @@ class AgentProtectClient:
         if self._client is None:
             raise RuntimeError("Client not initialized. Use 'async with' context manager.")
         assert self._client is not None  # Help mypy understand
-        response = await self._client.get(f"/agents/{agent_id}")
+        response = await self._client.get(f"/api/v1/agents/{agent_id}")
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
 
@@ -341,6 +341,7 @@ def init(
         agent_name=agent_name,
         agent_description=agent_description,
         agent_created_at=datetime.utcnow().isoformat(),
+        agent_updated_at=None,
         agent_version=agent_version,
         agent_metadata=kwargs
     )

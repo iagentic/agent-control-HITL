@@ -1,4 +1,4 @@
-.PHONY: help sync sync-all sync-models sync-server sync-sdk test test-models test-sdk lint lint-fix typecheck build build-models build-server build-sdk publish publish-models publish-server publish-sdk hooks-install hooks-uninstall prepush
+.PHONY: help sync sync-all sync-models sync-server sync-sdk test test-models test-sdk lint lint-fix typecheck check build build-models build-server build-sdk publish publish-models publish-server publish-sdk hooks-install hooks-uninstall prepush
 
 # Workspace package names
 PACK_MODELS := agent-protect-models
@@ -27,6 +27,7 @@ help:
 	@echo "  make lint            - ruff check for all members"
 	@echo "  make lint-fix        - ruff check --fix (auto-fix) for all members"
 	@echo "  make typecheck       - mypy for all members"
+	@echo "  make check           - run test, lint, and typecheck"
 	@echo ""
 	@echo "Build / Publish:"
 	@echo "  make build           - build wheels for all members"
@@ -66,6 +67,9 @@ sync-sdk:
 # ---------------------------
 
 test: server-test
+
+# Run tests, lint, and typecheck
+check: test lint typecheck
 
 # ---------------------------
 # Quality

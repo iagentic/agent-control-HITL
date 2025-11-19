@@ -53,6 +53,17 @@ class Settings(BaseSettings):
     api_version: str = "v1"
     api_prefix: str = "/api"
 
+    # CORS settings
+    cors_origins: list[str] | str = "*"
+
+    def get_cors_origins(self) -> list[str]:
+        """Parse CORS origins from string or list."""
+        if isinstance(self.cors_origins, str):
+            if self.cors_origins == "*":
+                return ["*"]
+            return [origin.strip() for origin in self.cors_origins.split(",")]
+        return self.cors_origins
+
 
 db_config = AgentProtectServerDatabaseConfig()
 settings = Settings()
