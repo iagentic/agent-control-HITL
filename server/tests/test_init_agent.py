@@ -348,3 +348,20 @@ def test_list_agent_controls_agent_not_found_404(client: TestClient) -> None:
     r = client.get(f"/api/v1/agents/{missing}/controls")
     # Then: 404
     assert r.status_code == 404
+
+
+def test_init_agent_rejects_non_uuid_agent_id(client: TestClient) -> None:
+    # Given: a payload with an invalid (non-UUID) agent_id
+    payload = {
+        "agent": {
+            "agent_id": "not-a-valid-uuid",
+            "agent_name": "Test Agent",
+            "agent_description": "desc",
+            "agent_version": "1.0",
+        },
+        "tools": [],
+    }
+    # When: calling initAgent
+    resp = client.post("/api/v1/agents/initAgent", json=payload)
+    # Then: a 422 validation error is returned
+    assert resp.status_code == 422
