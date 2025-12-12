@@ -4,18 +4,21 @@ Evaluates controls in parallel with cancel-on-deny for efficiency.
 """
 
 import asyncio
+import functools
 import logging
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
+import re2
 from agent_control_models import (
     ControlDefinition,
     ControlMatch,
     EvaluationRequest,
     EvaluationResponse,
     EvaluatorResult,
+    ToolCall,
 )
 
 from .evaluators import get_evaluator
@@ -28,6 +31,15 @@ DEFAULT_EVALUATOR_TIMEOUT = float(os.environ.get("EVALUATOR_TIMEOUT_SECONDS", "3
 
 # Max concurrent evaluations (limits task spawning overhead for large policies)
 MAX_CONCURRENT_EVALUATIONS = int(os.environ.get("MAX_CONCURRENT_EVALUATIONS", "3"))
+
+
+@functools.lru_cache(maxsize=256)
+def _compile_regex(pattern: str) -> Any:
+    """Compile and cache RE2 regex patterns.
+
+    Caching avoids recompiling the same pattern on every request.
+    """
+    return re2.compile(pattern)
 
 
 class ControlWithIdentity(Protocol):
@@ -53,17 +65,27 @@ class ControlEngine:
 
     Controls are evaluated in parallel using asyncio. On the first
     deny match, remaining tasks are cancelled for efficiency.
+
+    Args:
+        controls: Sequence of controls to evaluate.
+        context: Execution context. 'sdk' runs only local=True controls,
+                 'server' runs only local=False controls.
     """
 
-    def __init__(self, controls: Sequence[ControlWithIdentity]):
+    def __init__(
+        self,
+        controls: Sequence[ControlWithIdentity],
+        context: Literal["sdk", "server"] = "server",
+    ):
         self.controls = controls
+        self.context = context
 
     def get_applicable_controls(
         self, request: EvaluationRequest
     ) -> list[ControlWithIdentity]:
         """Get all controls that apply to the current request."""
         applicable = []
-        payload_is_tool = hasattr(request.payload, "tool_name")
+        payload_is_tool = isinstance(request.payload, ToolCall)
 
         for item in self.controls:
             control_def = item.control
@@ -78,6 +100,36 @@ class ControlEngine:
                 continue
             if control_def.applies_to == "llm_call" and payload_is_tool:
                 continue
+
+            # Filter by locality based on context
+            control_local = getattr(control_def, "local", False)
+            if self.context == "sdk" and not control_local:
+                continue
+            if self.context == "server" and control_local:
+                continue
+
+            # Optional tool scoping for ToolCall payloads
+            if payload_is_tool:
+                sel = control_def.selector
+                names = getattr(sel, "tool_names", None)
+                pattern = getattr(sel, "tool_name_regex", None)
+                if names or pattern:
+                    tool_name = getattr(request.payload, "tool_name", None)
+                    if tool_name is None:
+                        continue
+                    match = False
+                    if names and tool_name in names:
+                        match = True
+                    if not match and pattern:
+                        try:
+                            if _compile_regex(pattern).search(tool_name) is not None:
+                                match = True
+                        except re2.error:
+                            # Invalid pattern should have been caught at model validation;
+                            # skip defensively.
+                            continue
+                    if not match:
+                        continue
 
             applicable.append(item)
 
@@ -104,7 +156,8 @@ class ControlEngine:
         eval_tasks: list[_EvalTask] = []
         for item in applicable:
             control_def = item.control
-            data = select_data(request.payload, control_def.selector.path)
+            sel_path = control_def.selector.path or "*"
+            data = select_data(request.payload, sel_path)
             eval_tasks.append(_EvalTask(item=item, data=data))
 
         # Run evaluations in parallel with cancel-on-deny

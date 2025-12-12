@@ -44,6 +44,7 @@ from .client import AgentControlClient
 
 # Import control decorator
 from .control_decorators import ControlViolationError, control
+from .evaluation import check_evaluation_with_local
 
 # Import models if available
 try:
@@ -401,10 +402,13 @@ __all__ = [
     "evaluation",
     "plugins",
 
-    # Tool inference utilities
+# Tool inference utilities
     "tool",
     "extract_tools_from_functions",
     "tools_from_module",
+
+    # Local evaluation
+    "check_evaluation_with_local",
 
     # Models (if available)
     "Agent",

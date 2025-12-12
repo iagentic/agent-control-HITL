@@ -198,47 +198,6 @@ def test_patch_agent_remove_both(client: TestClient) -> None:
     assert data["evaluators_removed"] == ["my_eval"]
 
 
-def test_patch_agent_regenerates_schema_when_tools_removed(client: TestClient) -> None:
-    """Given an agent with tools, when removing a tool, then the schema is regenerated."""
-    # Given: Agent with two tools
-    agent_id = str(uuid.uuid4())
-    name = f"Test Agent {uuid.uuid4().hex[:8]}"
-    payload = make_agent_payload(
-        agent_id=agent_id,
-        name=name,
-        tools=[
-            {"tool_name": "keep_tool", "arguments": {"arg1": {"type": "string"}}, "output_schema": {}},
-            {"tool_name": "remove_tool", "arguments": {"arg2": {"type": "integer"}}, "output_schema": {}},
-        ],
-    )
-    client.post("/api/v1/agents/initAgent", json=payload)
-
-    # Verify initial schema has both tools
-    schema_resp = client.get(f"/api/v1/agents/{agent_id}/schema")
-    assert schema_resp.status_code == 200
-    initial_schema = schema_resp.json()
-
-    # When: Remove one tool
-    patch_resp = client.patch(
-        f"/api/v1/agents/{agent_id}",
-        json={"remove_tools": ["remove_tool"]},
-    )
-    assert patch_resp.status_code == 200
-
-    # Then: Schema should be regenerated without removed tool
-    schema_resp = client.get(f"/api/v1/agents/{agent_id}/schema")
-    assert schema_resp.status_code == 200
-    updated_schema = schema_resp.json()
-
-    # Schema should be different (regenerated)
-    assert initial_schema != updated_schema
-
-    # The updated schema should only reference the kept tool
-    schema_str = str(updated_schema)
-    assert "keep_tool" in schema_str
-    assert "remove_tool" not in schema_str
-
-
 def test_patch_agent_empty_request_is_noop(client: TestClient) -> None:
     """Given an agent, when patching with empty lists, then nothing changes and succeeds."""
     # Given

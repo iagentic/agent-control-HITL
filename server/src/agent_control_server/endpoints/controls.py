@@ -1,4 +1,4 @@
-from agent_control_models import get_plugin
+from agent_control_models import ControlDefinition, get_plugin
 from agent_control_models.server import (
     CreateControlRequest,
     CreateControlResponse,
@@ -92,10 +92,11 @@ async def get_control_data(
         db: Database session (injected)
 
     Returns:
-        GetControlDataResponse with control data dictionary
+        GetControlDataResponse with validated ControlDefinition
 
     Raises:
         HTTPException 404: Control not found
+        HTTPException 422: Control data is corrupted
     """
     res = await db.execute(select(Control).where(Control.id == control_id))
     control = res.scalars().first()
@@ -103,7 +104,14 @@ async def get_control_data(
         raise HTTPException(
             status_code=404, detail=f"Control with ID '{control_id}' not found"
         )
-    return GetControlDataResponse(data=control.data)
+    try:
+        control_def = ControlDefinition.model_validate(control.data)
+    except Exception as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Control '{control.name}' has corrupted data: {e}",
+        )
+    return GetControlDataResponse(data=control_def)
 
 
 @router.put(
@@ -208,7 +216,17 @@ async def set_control_data(
         # If plugin not found, allow it - might be a server-side registered plugin
         # that will be validated at runtime
 
-    control.data = request.data.model_dump(mode="json")
+    data_json = request.data.model_dump(mode="json", exclude_none=True, exclude_unset=True)
+    # Pydantic's exclude_none doesn't propagate into nested model dicts after
+    # serialization, so we re-dump the selector separately to strip null keys.
+    try:
+        selector_json = request.data.selector.model_dump(exclude_none=True, exclude_unset=True)  # type: ignore[attr-defined]
+        selector_json = {k: v for k, v in selector_json.items() if v is not None}
+        if selector_json:
+            data_json["selector"] = selector_json
+    except Exception:
+        pass
+    control.data = data_json
     try:
         await db.commit()
     except Exception:

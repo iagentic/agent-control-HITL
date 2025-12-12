@@ -101,6 +101,9 @@ class GetAgentResponse(BaseModel):
     """Response containing agent details and registered tools."""
     agent: Agent = Field(..., description="Agent metadata")
     tools: list[AgentTool] = Field(..., description="Tools registered with this agent")
+    evaluators: list[EvaluatorSchema] = Field(
+        default_factory=list, description="Custom evaluators registered with this agent"
+    )
 
 
 class CreatePolicyResponse(BaseModel):
@@ -153,7 +156,7 @@ class AssocResponse(BaseModel):
 
 
 class GetControlDataResponse(BaseModel):
-    data: ControlDefinition | dict[str, Any] = Field(description="Control data payload")
+    data: ControlDefinition = Field(description="Control data payload")
 
 
 class SetControlDataRequest(BaseModel):

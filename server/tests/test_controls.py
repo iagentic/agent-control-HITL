@@ -22,14 +22,14 @@ def test_create_control_returns_id(client: TestClient) -> None:
     assert isinstance(resp.json()["control_id"], int)
 
 
-def test_get_control_data_initially_empty(client: TestClient) -> None:
-    # Given: a newly created control
+def test_get_control_data_initially_unconfigured(client: TestClient) -> None:
+    # Given: a newly created control (no data set yet)
     control_id = create_control(client)
     # When: fetching its data
     resp = client.get(f"/api/v1/controls/{control_id}/data")
-    # Then: data is an empty object
-    assert resp.status_code == 200
-    assert resp.json()["data"] == {}
+    # Then: 422 because empty data is not a valid ControlDefinition
+    assert resp.status_code == 422
+    assert "corrupted data" in resp.json()["detail"]
 
 
 VALID_CONTROL_DATA = {
@@ -58,9 +58,17 @@ def test_set_control_data_replaces_existing(client: TestClient) -> None:
 
     # When: reading back
     resp_get = client.get(f"/api/v1/controls/{control_id}/data")
-    # Then: data matches payload exactly
+    # Then: data matches payload (with defaults filled in)
     assert resp_get.status_code == 200
-    assert resp_get.json()["data"] == payload
+    data = resp_get.json()["data"]
+    # Core fields should match
+    assert data["description"] == payload["description"]
+    assert data["enabled"] == payload["enabled"]
+    assert data["applies_to"] == payload["applies_to"]
+    assert data["check_stage"] == payload["check_stage"]
+    assert data["evaluator"] == payload["evaluator"]
+    assert data["action"] == payload["action"]
+    assert data["selector"]["path"] == payload["selector"]["path"]
 
 
 def test_set_control_data_with_empty_dict_fails(client: TestClient) -> None:

@@ -1,7 +1,5 @@
 """Evaluation analysis endpoints."""
 
-from typing import Any
-
 from agent_control_engine.core import ControlEngine
 from agent_control_models import ControlDefinition, EvaluationRequest, EvaluationResponse
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,10 +17,10 @@ _logger = get_logger(__name__)
 class ControlAdapter:
     """Adapts API Control to Engine ControlWithIdentity protocol."""
 
-    def __init__(self, id: int, name: str, control_data: dict[str, Any]):
+    def __init__(self, id: int, name: str, control: ControlDefinition):
         self.id = id
         self.name = name
-        self.control = ControlDefinition.model_validate(control_data)
+        self.control = control
 
 
 @router.post(
@@ -44,17 +42,11 @@ async def evaluate(
     Custom evaluators must be deployed as PluginEvaluator classes
     with the engine. Their schemas are registered via initAgent.
     """
-    # Fetch controls for the agent
+    # Fetch controls for the agent (already validated as ControlDefinition)
     api_controls = await list_controls_for_agent(request.agent_uuid, db)
 
     # Adapt controls for the engine
-    engine_controls = []
-    for c in api_controls:
-        try:
-            engine_controls.append(ControlAdapter(c.id, c.name, c.control))
-        except Exception as e:
-            _logger.warning(f"Failed to adapt control '{c.name}': {e}")
-            continue
+    engine_controls = [ControlAdapter(c.id, c.name, c.control) for c in api_controls]
 
     # Execute Control Engine (parallel with cancel-on-deny)
     engine = ControlEngine(engine_controls)

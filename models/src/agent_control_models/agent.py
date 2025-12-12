@@ -32,7 +32,7 @@ class Agent(BaseModel):
     agent_version: str | None = Field(
         None, description="Semantic version string (e.g. '1.0.0')"
     )
-    agent_metadata: dict | None = Field(
+    agent_metadata: dict[str, Any] | None = Field(
         None, description="Free-form metadata dictionary for custom properties"
     )
 

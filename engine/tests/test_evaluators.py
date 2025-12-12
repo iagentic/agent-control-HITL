@@ -1,20 +1,16 @@
 """Tests for unified evaluator factory."""
 
 import pytest
+from agent_control_engine.evaluators import (
+    clear_evaluator_cache,
+    get_available_plugins,
+    get_evaluator,
+)
 from agent_control_models import (
     EvaluatorConfig,
     RegexConfig,
-    ListConfig,
-    get_plugin,
-    clear_plugins,
 )
-from agent_control_plugins import RegexPlugin, ListPlugin
-
-from agent_control_engine.evaluators import (
-    get_evaluator,
-    get_available_plugins,
-    clear_evaluator_cache,
-)
+from agent_control_plugins import ListPlugin, RegexPlugin
 
 
 class TestRegexPlugin:

@@ -161,6 +161,38 @@ Example:
 }
 ```
 
+#### Selector scoping by tool (and path defaults)
+
+- `selector.path` is optional and defaults to `"*"` (entire payload). Use a concrete path (e.g., `"arguments.query"`) for evaluators that expect primitives.
+- To scope a control to specific tools:
+  - Exact names: `selector.tool_names: ["copy_file", "aws_cli"]`
+  - Regex (RE2 search): `selector.tool_name_regex: "^db_.*"`
+- Semantics when both are present: OR (any match applies). Applies only to `applies_to = "tool_call"`.
+
+Examples:
+
+Only for copy_file and aws_cli, check destination path:
+```json
+{
+  "applies_to": "tool_call",
+  "check_stage": "pre",
+  "selector": { "path": "arguments.dest", "tool_names": ["copy_file", "aws_cli"] },
+  "evaluator": { "plugin": "regex", "config": { "pattern": "^/tmp/" } },
+  "action": { "decision": "deny" }
+}
+```
+
+Any tool named db_* and evaluate full payload (path omitted → "*"):
+```json
+{
+  "applies_to": "tool_call",
+  "check_stage": "post",
+  "selector": { "tool_name_regex": "^db_.*" },
+  "evaluator": { "plugin": "list", "config": { "values": ["error"], "logic": "any", "match_on": "match" } },
+  "action": { "decision": "warn" }
+}
+```
+
 ### 2. Using the SDK
 
 Install the SDK in your agent's environment (currently via local path or built wheel).

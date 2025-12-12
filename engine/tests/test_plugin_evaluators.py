@@ -3,23 +3,20 @@
 These tests verify the plugin system works correctly with the engine.
 """
 
-import pytest
 from typing import Any
 
-from pydantic import BaseModel
-
+# Import to ensure built-in plugins are registered
+import agent_control_plugins  # noqa: F401
+import pytest
+from agent_control_engine.evaluators import get_evaluator
 from agent_control_models import (
     EvaluatorConfig,
     EvaluatorResult,
     PluginEvaluator,
     PluginMetadata,
     register_plugin,
-    clear_plugins,
 )
-from agent_control_engine.evaluators import get_evaluator
-
-# Import to ensure built-in plugins are registered
-import agent_control_plugins  # noqa: F401
+from pydantic import BaseModel
 
 
 class MockConfig(BaseModel):

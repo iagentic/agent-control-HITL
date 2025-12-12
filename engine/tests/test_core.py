@@ -9,11 +9,10 @@ These tests verify:
 import asyncio
 from dataclasses import dataclass
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel
-
+from agent_control_engine.core import ControlEngine, _compile_regex
+from agent_control_engine.evaluators import clear_evaluator_cache
 from agent_control_models import (
     ControlDefinition,
     EvaluationRequest,
@@ -22,11 +21,10 @@ from agent_control_models import (
     LlmCall,
     PluginEvaluator,
     PluginMetadata,
+    ToolCall,
     register_plugin,
 )
-from agent_control_engine.core import ControlEngine
-from agent_control_engine.evaluators import clear_evaluator_cache
-
+from pydantic import BaseModel
 
 # =============================================================================
 # Test Fixtures and Helpers
@@ -177,17 +175,30 @@ def make_control(
     plugin: str,
     action: str = "deny",
     config_value: str = "default",
+    *,
+    applies_to: str = "llm_call",
+    path: str | None = "input",
+    tool_names: list[str] | None = None,
+    tool_name_regex: str | None = None,
 ) -> MockControlWithIdentity:
     """Create a mock control for testing."""
+    selector: dict[str, Any] = {}
+    if path is not None:
+        selector["path"] = path
+    if tool_names is not None:
+        selector["tool_names"] = tool_names
+    if tool_name_regex is not None:
+        selector["tool_name_regex"] = tool_name_regex
+
     return MockControlWithIdentity(
         id=control_id,
         name=name,
         control=ControlDefinition(
             description=f"Test control {name}",
             enabled=True,
-            applies_to="llm_call",
+            applies_to=applies_to,
             check_stage="pre",
-            selector={"path": "input"},
+            selector=selector or {"path": "*"},
             evaluator=EvaluatorConfig(
                 plugin=plugin,
                 config={"value": config_value},
@@ -862,6 +873,177 @@ class TestConfidenceCalculation:
 # =============================================================================
 
 
+# =============================================================================
+# Test: Selector Tool Scoping and Optional Path
+# =============================================================================
+
+
+class PayloadEchoPlugin(PluginEvaluator[SimpleConfig]):
+    """Plugin that inspects full payload when path is omitted ("*")."""
+
+    metadata = PluginMetadata(
+        name="test-payload-echo",
+        version="1.0.0",
+        description="Echo payload info",
+    )
+    config_model = SimpleConfig
+
+    async def evaluate(self, data: Any) -> EvaluatorResult:
+        # If we received the full ToolCall payload, it has .tool_name
+        tool_name = getattr(data, "tool_name", None)
+        if tool_name:
+            _execution_log.append(f"payload_tool:{tool_name}")
+        else:
+            _execution_log.append("payload_tool:<none>")
+        return EvaluatorResult(matched=False, confidence=1.0, message="ok")
+
+
+class TestSelectorToolScoping:
+    @pytest.fixture(autouse=True)
+    def register_payload_plugin(self):
+        try:
+            register_plugin(PayloadEchoPlugin)
+        except ValueError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_tool_names_filters_tasks(self):
+        # Given: two controls scoped to different tools
+        controls = [
+            make_control(
+                1,
+                "allow_copy",
+                "test-allow",
+                action="log",
+                config_value="copy",
+                applies_to="tool_call",
+                path="input",
+                tool_names=["copy_file"],
+            ),
+            make_control(
+                2,
+                "allow_aws",
+                "test-allow",
+                action="log",
+                config_value="aws",
+                applies_to="tool_call",
+                path="input",
+                tool_names=["aws_cli"],
+            ),
+        ]
+        engine = ControlEngine(controls)
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=ToolCall(tool_name="copy_file", arguments={}, output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+        # Then: only copy control ran
+        log = "|".join(_execution_log)
+        assert "allow:copy:start" in log and "allow:copy:end" in log
+        assert "allow:aws:start" not in log and "allow:aws:end" not in log
+
+    @pytest.mark.asyncio
+    async def test_tool_name_regex_filters_tasks(self):
+        # Given: regex scoping for db_*
+        controls = [
+            make_control(
+                1,
+                "allow_db",
+                "test-allow",
+                action="log",
+                config_value="db",
+                applies_to="tool_call",
+                path="input",
+                tool_name_regex=r"^db_.*",
+            ),
+            make_control(
+                2,
+                "allow_web",
+                "test-allow",
+                action="log",
+                config_value="web",
+                applies_to="tool_call",
+                path="input",
+                tool_name_regex=r"^web_.*",
+            ),
+        ]
+        engine = ControlEngine(controls)
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=ToolCall(tool_name="db_query", arguments={}, output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+        log = "|".join(_execution_log)
+        assert "allow:db:start" in log and "allow:db:end" in log
+        assert "allow:web:start" not in log and "allow:web:end" not in log
+
+    @pytest.mark.asyncio
+    async def test_or_semantics_names_or_regex(self):
+        # Given: both names and regex present; OR semantics
+        controls = [
+            make_control(
+                1,
+                "allow_mixed",
+                "test-allow",
+                action="log",
+                config_value="mixed",
+                applies_to="tool_call",
+                path="input",
+                tool_names=["build"],
+                tool_name_regex=r"^db_.*",
+            ),
+        ]
+        engine = ControlEngine(controls)
+        # Matches by regex despite name mismatch
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=ToolCall(tool_name="db_export", arguments={}, output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+        log = "|".join(_execution_log)
+        assert "allow:mixed:start" in log and "allow:mixed:end" in log
+
+    @pytest.mark.asyncio
+    async def test_path_optional_defaults_to_star(self):
+        # Given: path omitted; plugin should receive full payload
+        controls = [
+            make_control(
+                1,
+                "payload_echo",
+                "test-payload-echo",
+                action="log",
+                config_value="p",
+                applies_to="tool_call",
+                path=None,  # omit path to use "*"
+                tool_names=["copy_file"],
+            )
+        ]
+        engine = ControlEngine(controls)
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=ToolCall(tool_name="copy_file", arguments={}, output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+        assert any(s.startswith("payload_tool:") for s in _execution_log)
+
+    def test_invalid_tool_name_regex_rejected(self):
+        # ControlDefinition should reject invalid regex during validation
+        with pytest.raises(Exception):
+            ControlDefinition(
+                description="bad regex",
+                enabled=True,
+                applies_to="tool_call",
+                check_stage="pre",
+                selector={"tool_name_regex": "("},
+                evaluator=EvaluatorConfig(plugin="test-allow", config={"value": "x"}),
+                action={"decision": "log"},
+            )
+
+
 class TestTimeoutEnforcement:
     """Tests for per-evaluator timeout enforcement."""
 
@@ -1057,3 +1239,310 @@ class TestConcurrencyLimit:
 
         # Then: Max concurrent should not exceed the limit
         assert _max_concurrent <= 2, f"Expected max 2 concurrent, got {_max_concurrent}"
+
+
+# =============================================================================
+# Test: Context Filtering (local vs server)
+# =============================================================================
+
+
+def make_control_with_local(
+    control_id: int,
+    name: str,
+    plugin: str,
+    action: str = "deny",
+    config_value: str = "default",
+    *,
+    local: bool = False,
+    applies_to: str = "llm_call",
+    path: str = "input",
+) -> MockControlWithIdentity:
+    """Create a mock control with the local flag set."""
+    return MockControlWithIdentity(
+        id=control_id,
+        name=name,
+        control=ControlDefinition(
+            description=f"Test control {name}",
+            enabled=True,
+            local=local,
+            applies_to=applies_to,
+            check_stage="pre",
+            selector={"path": path},
+            evaluator=EvaluatorConfig(
+                plugin=plugin,
+                config={"value": config_value},
+            ),
+            action={"decision": action},
+        ),
+    )
+
+
+class TestContextFiltering:
+    """Tests for context-based filtering (local vs server execution)."""
+
+    @pytest.mark.asyncio
+    async def test_server_context_only_runs_non_local_controls(self):
+        """Test that server context only runs local=False controls.
+
+        Given: Controls with local=True and local=False
+        When: Engine runs with context='server'
+        Then: Only local=False controls are executed
+        """
+        controls = [
+            make_control_with_local(
+                1, "local_ctrl", "test-allow", action="log", config_value="loc", local=True
+            ),
+            make_control_with_local(
+                2, "server_ctrl", "test-allow", action="log", config_value="srv", local=False
+            ),
+        ]
+        engine = ControlEngine(controls, context="server")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+
+        # Only server_ctrl should have run
+        log = "|".join(_execution_log)
+        assert "allow:srv:start" in log and "allow:srv:end" in log
+        assert "allow:loc:start" not in log and "allow:loc:end" not in log
+
+    @pytest.mark.asyncio
+    async def test_sdk_context_only_runs_local_controls(self):
+        """Test that SDK context only runs local=True controls.
+
+        Given: Controls with local=True and local=False
+        When: Engine runs with context='sdk'
+        Then: Only local=True controls are executed
+        """
+        controls = [
+            make_control_with_local(
+                1, "local_ctrl", "test-allow", action="log", config_value="loc", local=True
+            ),
+            make_control_with_local(
+                2, "server_ctrl", "test-allow", action="log", config_value="srv", local=False
+            ),
+        ]
+        engine = ControlEngine(controls, context="sdk")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+
+        # Only local_ctrl should have run
+        log = "|".join(_execution_log)
+        assert "allow:loc:start" in log and "allow:loc:end" in log
+        assert "allow:srv:start" not in log and "allow:srv:end" not in log
+
+    @pytest.mark.asyncio
+    async def test_default_context_is_server(self):
+        """Test that default context is 'server'.
+
+        Given: Controls with local=True and local=False
+        When: Engine runs with default context (no context param)
+        Then: Only local=False controls are executed
+        """
+        controls = [
+            make_control_with_local(
+                1, "local_ctrl", "test-allow", action="log", config_value="loc", local=True
+            ),
+            make_control_with_local(
+                2, "server_ctrl", "test-allow", action="log", config_value="srv", local=False
+            ),
+        ]
+        engine = ControlEngine(controls)  # No context param
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+
+        # Only server_ctrl should have run (default context is 'server')
+        log = "|".join(_execution_log)
+        assert "allow:srv:start" in log and "allow:srv:end" in log
+        assert "allow:loc:start" not in log and "allow:loc:end" not in log
+
+    @pytest.mark.asyncio
+    async def test_sdk_context_empty_when_no_local_controls(self):
+        """Test that SDK context returns early when no local controls exist.
+
+        Given: Controls that are all local=False
+        When: Engine runs with context='sdk'
+        Then: No controls are executed, result is safe with full confidence
+        """
+        controls = [
+            make_control_with_local(
+                1, "server1", "test-deny", action="deny", config_value="s1", local=False
+            ),
+            make_control_with_local(
+                2, "server2", "test-deny", action="deny", config_value="s2", local=False
+            ),
+        ]
+        engine = ControlEngine(controls, context="sdk")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        result = await engine.process(request)
+
+        # No controls should run
+        assert len(_execution_log) == 0
+        # Result should be safe (no applicable controls)
+        assert result.is_safe is True
+        assert result.confidence == 1.0
+        assert result.matches is None
+
+    @pytest.mark.asyncio
+    async def test_server_context_empty_when_all_local_controls(self):
+        """Test that server context returns early when all controls are local.
+
+        Given: Controls that are all local=True
+        When: Engine runs with context='server'
+        Then: No controls are executed, result is safe with full confidence
+        """
+        controls = [
+            make_control_with_local(
+                1, "local1", "test-deny", action="deny", config_value="l1", local=True
+            ),
+            make_control_with_local(
+                2, "local2", "test-deny", action="deny", config_value="l2", local=True
+            ),
+        ]
+        engine = ControlEngine(controls, context="server")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        result = await engine.process(request)
+
+        # No controls should run
+        assert len(_execution_log) == 0
+        # Result should be safe (no applicable controls)
+        assert result.is_safe is True
+        assert result.confidence == 1.0
+        assert result.matches is None
+
+    @pytest.mark.asyncio
+    async def test_local_deny_works_in_sdk_context(self):
+        """Test that local deny controls work correctly in SDK context.
+
+        Given: A local deny control that matches
+        When: Engine runs with context='sdk'
+        Then: The deny is detected and is_safe=False
+        """
+        controls = [
+            make_control_with_local(
+                1, "local_deny", "test-deny", action="deny", config_value="ld", local=True
+            ),
+        ]
+        engine = ControlEngine(controls, context="sdk")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=LlmCall(input="test", output=None),
+            check_stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Deny should be detected
+        assert "deny:ld:start" in _execution_log
+        assert "deny:ld:end" in _execution_log
+        assert result.is_safe is False
+        assert result.matches is not None
+        assert len(result.matches) == 1
+        assert result.matches[0].control_name == "local_deny"
+
+    @pytest.mark.asyncio
+    async def test_context_filtering_combined_with_tool_scoping(self):
+        """Test that context filtering works together with tool_names scoping.
+
+        Given: Controls with both local flag and tool_names scoping
+        When: Engine runs with context='sdk' and a specific tool
+        Then: Only matching local controls for that tool are executed
+        """
+        controls = [
+            make_control_with_local(
+                1, "local_copy", "test-allow",
+                action="log", config_value="lc", local=True, applies_to="tool_call"
+            ),
+            make_control_with_local(
+                2, "server_copy", "test-allow",
+                action="log", config_value="sc", local=False, applies_to="tool_call"
+            ),
+        ]
+        # Add tool_names to controls via patching
+        controls[0].control.selector.tool_names = ["copy_file"]
+        controls[1].control.selector.tool_names = ["copy_file"]
+
+        engine = ControlEngine(controls, context="sdk")
+
+        request = EvaluationRequest(
+            agent_uuid="00000000-0000-0000-0000-000000000001",
+            payload=ToolCall(tool_name="copy_file", arguments={}, output=None),
+            check_stage="pre",
+        )
+        await engine.process(request)
+
+        # Only local_copy should run (sdk context + matching tool)
+        log = "|".join(_execution_log)
+        assert "allow:lc:start" in log and "allow:lc:end" in log
+        assert "allow:sc:start" not in log and "allow:sc:end" not in log
+
+
+# =============================================================================
+# Test: Regex Caching
+# =============================================================================
+
+
+class TestRegexCaching:
+    """Tests for regex pattern caching."""
+
+    def test_compile_regex_returns_pattern(self):
+        """Test that _compile_regex returns a valid pattern."""
+        pattern = _compile_regex(r"test.*pattern")
+        assert pattern is not None
+        assert pattern.search("test_foo_pattern") is not None
+        assert pattern.search("no match") is None
+
+    def test_compile_regex_caches_same_pattern(self):
+        """Test that _compile_regex caches repeated patterns."""
+        # Clear cache first
+        _compile_regex.cache_clear()
+
+        pattern1 = _compile_regex(r"cached_pattern")
+        pattern2 = _compile_regex(r"cached_pattern")
+
+        # Should be same object (cached)
+        assert pattern1 is pattern2
+
+        # Check cache info
+        info = _compile_regex.cache_info()
+        assert info.hits == 1
+        assert info.misses == 1
+
+    def test_compile_regex_different_patterns_cached_separately(self):
+        """Test that different patterns are cached separately."""
+        _compile_regex.cache_clear()
+
+        pattern1 = _compile_regex(r"pattern_one")
+        pattern2 = _compile_regex(r"pattern_two")
+
+        # Should be different objects
+        assert pattern1 is not pattern2
+
+        # Both should be misses
+        info = _compile_regex.cache_info()
+        assert info.hits == 0
+        assert info.misses == 2

@@ -195,6 +195,29 @@ def test_init_agent_overwrites_tool_on_signature_change(client: TestClient) -> N
         assert tool_a_entries[0]["arguments"] == {"a": "str"}
 
 
+def test_get_agent_returns_evaluators(client: TestClient) -> None:
+    """Test that GET /agents/{id} returns evaluators."""
+    # Given: an agent with evaluators
+    agent_id = str(uuid.uuid4())
+    payload = make_agent_payload(agent_id=agent_id)
+    payload["evaluators"] = [
+        {"name": "eval-a", "description": "First", "config_schema": {}},
+        {"name": "eval-b", "description": "Second", "config_schema": {"type": "object"}},
+    ]
+    resp = client.post("/api/v1/agents/initAgent", json=payload)
+    assert resp.status_code == 200
+
+    # When: fetching the agent
+    get_resp = client.get(f"/api/v1/agents/{agent_id}")
+    # Then: evaluators are included in the response
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert "evaluators" in data
+    assert len(data["evaluators"]) == 2
+    names = {e["name"] for e in data["evaluators"]}
+    assert names == {"eval-a", "eval-b"}
+
+
 def test_get_agent_not_found(client: TestClient) -> None:
     # Given: a random (missing) agent id
     missing = str(uuid.uuid4())

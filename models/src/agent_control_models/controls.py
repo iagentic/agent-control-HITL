@@ -9,22 +9,39 @@ from .base import BaseModel
 
 
 class ControlSelector(BaseModel):
-    """Selects data from payload using a path."""
+    """Selects data from payload and optionally scopes applicability by tool.
 
-    path: str = Field(
-        ...,
+    - path: which slice of the payload to feed into the evaluator. Optional, defaults to "*"
+      meaning the entire payload object (ToolCall or LlmCall).
+    - tool_names/tool_name_regex: optional applicability filters for ToolCall payloads.
+    """
+
+    path: str | None = Field(
+        default="*",
         description=(
             "Path to data using dot notation. "
             "Examples: 'input', 'output', 'arguments.query', 'context.user_id', 'tool_name', '*'"
         ),
     )
+    tool_names: list[str] | None = Field(
+        default=None,
+        description="Exact tool names this control applies to (ToolCall only)",
+    )
+    tool_name_regex: str | None = Field(
+        default=None,
+        description="RE2 pattern matched with search() against tool_name (ToolCall only)",
+    )
 
     @field_validator("path")
     @classmethod
-    def validate_path(cls, v: str) -> str:
-        """Validate path and warn about common typos."""
-        if not v:
-            raise ValueError("Path cannot be empty")
+    def validate_path(cls, v: str | None) -> str:
+        """Validate path; None becomes '*', empty string raises."""
+        if v is None:
+            return "*"
+        if v == "":
+            raise ValueError(
+                "Path cannot be empty string. Use '*' for root or omit the field."
+            )
 
         # Valid root fields
         valid_roots = {"input", "output", "arguments", "tool_name", "context", "*"}
@@ -35,7 +52,30 @@ class ControlSelector(BaseModel):
                 f"Invalid path root '{root}'. "
                 f"Must be one of: {', '.join(sorted(valid_roots))}"
             )
+        return v
 
+    @field_validator("tool_names")
+    @classmethod
+    def validate_tool_names(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) == 0:
+            raise ValueError(
+                "tool_names cannot be an empty list. Use None/omit the field to apply to all tools."
+            )
+        if any((not isinstance(x, str) or not x) for x in v):
+            raise ValueError("tool_names must be a list of non-empty strings")
+        return v
+
+    @field_validator("tool_name_regex")
+    @classmethod
+    def validate_tool_name_regex(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        try:
+            re2.compile(v)
+        except re2.error as e:
+            raise ValueError(f"Invalid tool_name_regex: {e}")
         return v
 
     model_config = {
@@ -46,6 +86,8 @@ class ControlSelector(BaseModel):
                 {"path": "context.user_id"},
                 {"path": "input"},
                 {"path": "*"},
+                {"path": "arguments.dest", "tool_names": ["copy_file", "aws_cli"]},
+                {"path": "output", "tool_name_regex": "^db_.*"},
             ]
         }
     }
@@ -157,6 +199,13 @@ class ControlDefinition(BaseModel):
 
     description: str | None = Field(None, description="Detailed description of the control")
     enabled: bool = Field(True, description="Whether this control is active")
+    local: bool = Field(
+        False,
+        description=(
+            "If True, this control runs locally in the SDK. "
+            "If False (default), it runs on the server."
+        ),
+    )
 
     # When to apply
     applies_to: Literal["llm_call", "tool_call"] = Field(

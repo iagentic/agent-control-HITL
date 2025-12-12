@@ -17,15 +17,13 @@ from agent_control_models.server import (
     SetPolicyResponse,
 )
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from pydantic_core._pydantic_core import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_async_db
 from ..logging_utils import get_logger
 from ..models import Agent, AgentData, Policy
-from ..schema_generator import generate_agent_schema, validate_agent_schema
 from ..services.controls import list_controls_for_agent, list_controls_for_policy
 from ..services.evaluator_utils import parse_evaluator_ref, validate_config_against_schema
 from ..services.schema_compat import (
@@ -168,23 +166,10 @@ async def init_agent(
     if existing is None:
         created = True
 
-        # Generate agent schema from tools
-        tools_dict = [tool.model_dump(mode="json") for tool in request.tools]
-        agent_schema = generate_agent_schema(tools_dict)
-
-        # Validate generated schema
-        is_valid, errors = validate_agent_schema(agent_schema)
-        if not is_valid:
-            _logger.warning(
-                f"Generated schema validation failed for agent "
-                f"'{request.agent.agent_name}': {errors}"
-            )
-
         data_model = AgentData(
             agent_metadata=request.agent.model_dump(mode="json"),
             tools=list(request.tools),
             evaluators=list(request.evaluators),
-            agent_schema=agent_schema,
         )
 
         new_agent = Agent(
@@ -318,20 +303,6 @@ async def init_agent(
     data_model.evaluators = new_evaluators
 
     if tools_changed or evaluators_changed or metadata_changed or force_write:
-        # Regenerate schema when tools change
-        if tools_changed:
-            tools_dict = [tool.model_dump(mode="json") for tool in new_tools]
-            agent_schema = generate_agent_schema(tools_dict)
-
-            # Validate generated schema
-            is_valid, errors = validate_agent_schema(agent_schema)
-            if not is_valid:
-                _logger.warning(
-                    f"Generated schema validation failed for agent "
-                    f"'{request.agent.agent_name}': {errors}"
-                )
-            data_model.agent_schema = agent_schema
-
         existing.data = data_model.model_dump(mode="json")
 
         try:
@@ -417,7 +388,9 @@ async def get_agent(agent_id: UUID, db: AsyncSession = Depends(get_async_db)) ->
             detail=f"Agent metadata is corrupted for agent '{existing.name}'",
         )
 
-    return GetAgentResponse(agent=agent_meta, tools=latest_tools)
+    return GetAgentResponse(
+        agent=agent_meta, tools=latest_tools, evaluators=data_model.evaluators
+    )
 
 
 @router.post(
@@ -645,72 +618,6 @@ async def list_agent_controls(
     return AgentControlsResponse(controls=controls)
 
 
-@router.get(
-    "/{agent_id}/schema",
-    summary="Get agent's auto-generated schema",
-    response_description="Schema generated from registered tools",
-)
-async def get_agent_schema(
-    agent_id: UUID, db: AsyncSession = Depends(get_async_db)
-) -> dict[str, Any]:
-    """
-    Retrieve the auto-generated schema for an agent.
-
-    The schema is automatically generated from the agent's registered tools
-    and includes:
-    - Tool definitions with input/output schemas
-    - Extracted capabilities
-    - Validation rules
-
-    Args:
-        agent_id: UUID of the agent
-        db: Database session (injected)
-
-    Returns:
-        Auto-generated agent schema
-
-    Raises:
-        HTTPException 404: Agent not found or no schema available
-    """
-    result = await db.execute(select(Agent).where(Agent.agent_uuid == agent_id))
-    agent: Agent | None = result.scalars().first()
-    if agent is None:
-        raise HTTPException(
-            status_code=404, detail=f"Agent with ID '{agent_id}' not found"
-        )
-
-    # Extract schema from agent data
-    schema = agent.data.get("agent_schema")
-    if schema is None:
-        # Check if agent has tools - if so, we can generate schema on-demand
-        try:
-            data_model = AgentData.model_validate(agent.data)
-            if data_model.tools:
-                # Generate schema from existing tools for backward compatibility
-                _logger.info(f"Generating schema for legacy agent '{agent.name}'")
-                tools_dict = [tool.model_dump(mode="json") for tool in data_model.tools]
-                schema = generate_agent_schema(tools_dict)
-
-                # Optionally persist it for next time
-                data_model.agent_schema = schema
-                agent.data = data_model.model_dump(mode="json")
-                await db.commit()
-                _logger.info(f"Persisted auto-generated schema for agent '{agent.name}'")
-
-                return schema
-        except ValidationError:
-            _logger.error(f"Failed to parse agent data for '{agent.name}'", exc_info=True)
-
-        raise HTTPException(
-            status_code=404,
-            detail=f"No schema available for agent '{agent.name}'. "
-                   f"Schema is auto-generated when agents are registered with tools."
-        )
-
-    # Cast to satisfy mypy since we know schema is dict[str, Any] at this point
-    return dict(schema)
-
-
 # =============================================================================
 # Evaluator Schema Endpoints
 # =============================================================================
@@ -925,8 +832,7 @@ async def patch_agent(
             referencing_controls: list[tuple[str, str]] = []  # (control_name, evaluator)
 
             for ctrl in controls:
-                ctrl_data = ctrl.control or {}
-                evaluator_ref = ctrl_data.get("evaluator", {}).get("plugin", "")
+                evaluator_ref = ctrl.control.evaluator.plugin
                 if ":" in evaluator_ref:
                     ref_agent, ref_eval = evaluator_ref.split(":", 1)
                     # Check if this control references an evaluator we're removing
@@ -956,20 +862,6 @@ async def patch_agent(
 
     # Only update if something changed
     if tools_removed or evaluators_removed:
-        # Regenerate agent_schema if tools were removed
-        if tools_removed:
-            tools_dict = [tool.model_dump(mode="json") for tool in data_model.tools]
-            agent_schema = generate_agent_schema(tools_dict)
-
-            is_valid, errors = validate_agent_schema(agent_schema)
-            if not is_valid:
-                _logger.warning(
-                    f"Generated schema validation failed after PATCH for agent "
-                    f"'{agent.name}': {errors}"
-                )
-
-            data_model.agent_schema = agent_schema
-
         agent.data = data_model.model_dump(mode="json")
         try:
             await db.commit()

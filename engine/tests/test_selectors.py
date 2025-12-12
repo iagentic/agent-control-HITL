@@ -2,9 +2,8 @@
 from typing import Any
 
 import pytest
-from agent_control_models import LlmCall, ToolCall
-
 from agent_control_engine.selectors import select_data
+from agent_control_models import LlmCall, ToolCall
 
 
 @pytest.fixture
@@ -45,7 +44,7 @@ def test_select_data_tool_call(tool_call_payload: ToolCall, path: str, expected:
     # Given: a ToolCall payload and a path to select
     if path in ("*", ""):
         expected = tool_call_payload
-        
+
     # When: selecting data using the path
     result = select_data(tool_call_payload, path)
 
@@ -64,7 +63,7 @@ def test_select_data_tool_call(tool_call_payload: ToolCall, path: str, expected:
 )
 def test_select_data_llm_call(llm_call_payload: LlmCall, path: str, expected: Any):
     # Given: an LlmCall payload and a path to select (implicit in parametrization)
-    
+
     # When: selecting data using the path
     result = select_data(llm_call_payload, path)
 
@@ -76,10 +75,10 @@ def test_select_data_none_handling():
     """Test handling of None values in path traversal."""
     # Given: a payload with a None value field
     payload = LlmCall(input="test", output=None)
-    
+
     # When: attempting to traverse into the None field
     result = select_data(payload, "output.something")
-    
+
     # Then: it should return None instead of raising an error
     assert result is None
 def test_list_selection():
