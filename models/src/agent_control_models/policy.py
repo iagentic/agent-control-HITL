@@ -14,13 +14,13 @@ class Control(BaseModel):
     control: ControlDefinition
 
 
-class ControlSet(BaseModel):
+class Policy(BaseModel):
+    """A policy with its associated controls.
+
+    Policies define a collection of controls that can be assigned to agents.
+    Controls are directly associated with policies (no intermediate layer).
+    """
+
     id: int
     name: str
     controls: list[Control]
-
-
-class Policy(BaseModel):
-    id: int
-    name: str
-    control_sets: list[ControlSet]

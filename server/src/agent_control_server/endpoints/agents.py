@@ -20,6 +20,7 @@ from agent_control_models.server import (
     SetPolicyResponse,
 )
 from fastapi import APIRouter, Depends, HTTPException
+from jsonschema_rs import ValidationError as JSONSchemaValidationError
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +30,8 @@ from ..logging_utils import get_logger
 from ..models import (
     Agent,
     AgentData,
-    ControlSet,
     Policy,
-    control_set_controls,
-    policy_control_sets,
+    policy_controls,
 )
 from ..services.controls import list_controls_for_agent, list_controls_for_policy
 from ..services.evaluator_utils import parse_evaluator_ref, validate_config_against_schema
@@ -128,9 +127,9 @@ async def _validate_policy_controls_for_agent(
         if registered_ev.config_schema:
             try:
                 validate_config_against_schema(config, registered_ev.config_schema)
-            except Exception as e:
+            except JSONSchemaValidationError as e:
                 errors.append(
-                    f"Control '{control.name}' has invalid config for evaluator '{eval_name}': {e}"
+                    f"Control '{control.name}' invalid config for '{eval_name}': {e.message}"
                 )
 
     return errors
@@ -210,19 +209,17 @@ async def list_agents(
         next_cursor = str(agents[-1].agent_uuid)
 
     # Batch query: Get control counts for all agents at once
-    # Join: Agent -> Policy -> ControlSets -> control_set_controls (junction table)
+    # Join: Agent -> Policy -> policy_controls (junction table)
     # Group by agent_uuid and count distinct control IDs from junction table
     control_counts_map: dict[UUID, int] = {}
     if agents:
         control_counts_query = (
             select(
                 Agent.agent_uuid,
-                func.count(func.distinct(control_set_controls.c.control_id)).label("count"),
+                func.count(func.distinct(policy_controls.c.control_id)).label("count"),
             )
             .outerjoin(Policy, Agent.policy_id == Policy.id)
-            .outerjoin(policy_control_sets, Policy.id == policy_control_sets.c.policy_id)
-            .outerjoin(ControlSet, policy_control_sets.c.control_set_id == ControlSet.id)
-            .outerjoin(control_set_controls, ControlSet.id == control_set_controls.c.control_set_id)
+            .outerjoin(policy_controls, Policy.id == policy_controls.c.policy_id)
             .where(Agent.agent_uuid.in_([agent.agent_uuid for agent in agents]))
             .group_by(Agent.agent_uuid)
         )
@@ -240,9 +237,9 @@ async def list_agents(
             data_model = AgentData.model_validate(agent.data)
             tool_count = len(data_model.tools or [])
             evaluator_count = len(data_model.evaluators or [])
-        except Exception:
-            # If data is corrupted, just use zero counts
-            pass
+        except ValidationError:
+            # If data is corrupted, log and use zero counts
+            _logger.warning("Agent '%s' has invalid data, using zero counts", agent.name)
 
         # Get active controls count from batched query result
         active_controls = control_counts_map.get(agent.agent_uuid, 0)
@@ -559,7 +556,7 @@ async def set_agent_policy(
     """
     Assign a policy to an agent, replacing any existing policy assignment.
 
-    The agent will immediately inherit all controls from control sets in the assigned policy.
+    The agent will immediately inherit all controls from the assigned policy.
 
     Args:
         agent_id: UUID of the agent
@@ -745,7 +742,7 @@ async def list_agent_controls(
     """
     List all protection controls active for an agent.
 
-    Controls are inherited from all control sets in the agent's assigned policy.
+    Controls are inherited from the agent's assigned policy.
     Returns an empty list if the agent has no policy.
 
     Args:

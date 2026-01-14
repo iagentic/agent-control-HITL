@@ -30,9 +30,15 @@ from .plugin import (
 from .policy import Policy
 from .server import (
     AgentSummary,
+    ControlSummary,
+    DeleteControlResponse,
     EvaluatorSchema,
+    GetPolicyControlsResponse,
     ListAgentsResponse,
+    ListControlsResponse,
     PaginationInfo,
+    PatchControlRequest,
+    PatchControlResponse,
 )
 
 __all__ = [
@@ -69,8 +75,14 @@ __all__ = [
     "clear_plugins",
     # Server models
     "AgentSummary",
+    "ControlSummary",
+    "DeleteControlResponse",
     "EvaluatorSchema",
+    "GetPolicyControlsResponse",
     "ListAgentsResponse",
+    "ListControlsResponse",
     "PaginationInfo",
+    "PatchControlRequest",
+    "PatchControlResponse",
 ]
 

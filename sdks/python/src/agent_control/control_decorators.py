@@ -5,7 +5,7 @@ This module provides a decorator that applies server-defined policies to agent f
 Policies contain multiple controls (regex, list, Luna2, etc.) that are managed server-side.
 
 Architecture:
-    SERVER defines: Policies -> ControlSets -> Controls (check_stage, selector, evaluator, action)
+    SERVER defines: Policies -> Controls (check_stage, selector, evaluator, action)
     SDK decorator: just marks WHERE the policy applies
 
 Usage:
@@ -205,15 +205,11 @@ def control(policy: str | None = None) -> Callable[[F], F]:
            PUT /api/v1/controls {"name": "block-toxic-inputs"}
            PUT /api/v1/controls/{id}/data {"data": {...}}
 
-        2. Create control set and add controls:
-           PUT /api/v1/control-sets {"name": "safety-controls"}
-           POST /api/v1/control-sets/{set_id}/controls/{control_id}
-
-        3. Create policy and add control set:
+        2. Create policy and add controls:
            PUT /api/v1/policies {"name": "safety-policy"}
-           POST /api/v1/policies/{policy_id}/control_sets/{set_id}
+           POST /api/v1/policies/{policy_id}/controls/{control_id}
 
-        4. Assign policy to agent:
+        3. Assign policy to agent:
            POST /api/v1/agents/{agent_id}/policy/{policy_id}
     """
     # The policy parameter is for documentation only - the server uses

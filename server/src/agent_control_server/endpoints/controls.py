@@ -1,22 +1,32 @@
 from agent_control_models import ControlDefinition, get_plugin
 from agent_control_models.server import (
+    ControlSummary,
     CreateControlRequest,
     CreateControlResponse,
+    DeleteControlResponse,
     GetControlDataResponse,
     GetControlResponse,
+    ListControlsResponse,
+    PaginationInfo,
+    PatchControlRequest,
+    PatchControlResponse,
     SetControlDataRequest,
     SetControlDataResponse,
 )
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from jsonschema_rs import ValidationError as JSONSchemaValidationError
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_async_db
 from ..logging_utils import get_logger
-from ..models import Agent, AgentData, Control
+from ..models import Agent, AgentData, Control, policy_controls
 from ..services.evaluator_utils import parse_evaluator_ref, validate_config_against_schema
+
+# Pagination constants
+_DEFAULT_PAGINATION_LIMIT = 20
+_MAX_PAGINATION_LIMIT = 100
 
 router = APIRouter(prefix="/controls", tags=["controls"])
 
@@ -35,7 +45,7 @@ async def create_control(
     """
     Create a new control with a unique name and empty data.
 
-    Controls define protection logic and can be added to control sets.
+    Controls define protection logic and can be added to policies.
     Use the PUT /{control_id}/data endpoint to set control configuration.
 
     Args:
@@ -159,10 +169,10 @@ async def get_control_data(
         )
     try:
         control_def = ControlDefinition.model_validate(control.data)
-    except Exception as e:
+    except ValidationError as e:
         raise HTTPException(
             status_code=422,
-            detail=f"Control '{control.name}' has corrupted data: {e}",
+            detail=f"Control '{control.name}' has invalid data: {e.errors()}",
         )
     return GetControlDataResponse(data=control_def)
 
@@ -222,10 +232,10 @@ async def set_control_data(
 
         try:
             agent_data = AgentData.model_validate(agent.data)
-        except Exception:
+        except ValidationError as e:
             raise HTTPException(
                 status_code=422,
-                detail=f"Agent '{agent_name}' has corrupted data.",
+                detail=f"Agent '{agent_name}' has invalid data: {e.errors()}",
             )
 
         evaluator = next(
@@ -261,10 +271,15 @@ async def set_control_data(
         if plugin_cls is not None:
             try:
                 plugin_cls.config_model(**request.data.evaluator.config)
-            except Exception as e:
+            except ValidationError as e:
                 raise HTTPException(
                     status_code=422,
-                    detail=f"Config validation failed for plugin '{eval_name}': {e}",
+                    detail=f"Config validation failed for plugin '{eval_name}': {e.errors()}",
+                )
+            except TypeError as e:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Invalid config parameters for plugin '{eval_name}': {e}",
                 )
         # If plugin not found, allow it - might be a server-side registered plugin
         # that will be validated at runtime
@@ -277,7 +292,8 @@ async def set_control_data(
         selector_json = {k: v for k, v in selector_json.items() if v is not None}
         if selector_json:
             data_json["selector"] = selector_json
-    except Exception:
+    except AttributeError:
+        # Selector doesn't support model_dump, use original serialization
         pass
     control.data = data_json
     try:
@@ -293,3 +309,346 @@ async def set_control_data(
             detail=f"Failed to update data for control '{control.name}': database error",
         )
     return SetControlDataResponse(success=True)
+
+
+@router.get(
+    "",
+    response_model=ListControlsResponse,
+    summary="List all controls",
+    response_description="Paginated list of controls",
+)
+async def list_controls(
+    cursor: int | None = Query(None, description="Control ID to start after"),
+    limit: int = Query(_DEFAULT_PAGINATION_LIMIT, ge=1, le=_MAX_PAGINATION_LIMIT),
+    name: str | None = Query(None, description="Filter by name (partial, case-insensitive)"),
+    enabled: bool | None = Query(None, description="Filter by enabled status"),
+    applies_to: str | None = Query(None, description="Filter by 'llm_call' or 'tool_call'"),
+    tag: str | None = Query(None, description="Filter by tag"),
+    db: AsyncSession = Depends(get_async_db),
+) -> ListControlsResponse:
+    """
+    List all controls with optional filtering and cursor-based pagination.
+
+    Controls are returned ordered by ID descending (newest first).
+
+    Args:
+        cursor: ID of the last control from the previous page (for pagination)
+        limit: Maximum number of controls to return (default 20, max 100)
+        name: Optional filter by name (partial, case-insensitive match)
+        enabled: Optional filter by enabled status
+        applies_to: Optional filter by type ('llm_call' or 'tool_call')
+        tag: Optional filter by tag
+        db: Database session (injected)
+
+    Returns:
+        ListControlsResponse with control summaries and pagination info
+
+    Example:
+        GET /controls?limit=10&enabled=true&applies_to=llm_call
+    """
+    # Get total count (with filters applied)
+    count_query = select(func.count()).select_from(Control)
+    query = select(Control).order_by(Control.id.desc())
+
+    # Apply cursor
+    if cursor is not None:
+        query = query.where(Control.id < cursor)
+        count_query = count_query.where(Control.id < cursor)
+
+    # Apply name filter (case-insensitive partial match)
+    if name is not None:
+        query = query.where(Control.name.ilike(f"%{name}%"))
+        # Don't apply to count_query - total should be pre-filter
+
+    # Apply JSONB filters at database level
+    if enabled is not None:
+        if enabled:
+            # enabled=True: include if enabled is true OR key doesn't exist (default is True)
+            query = query.where(
+                or_(
+                    Control.data["enabled"].astext == "true",
+                    ~Control.data.has_key("enabled"),
+                )
+            )
+        else:
+            # enabled=False: only include if explicitly false
+            query = query.where(Control.data["enabled"].astext == "false")
+
+    if applies_to is not None:
+        query = query.where(Control.data["applies_to"].astext == applies_to)
+
+    if tag is not None:
+        query = query.where(Control.data["tags"].contains([tag]))
+
+    # Fetch limit + 1 to check for more pages
+    query = query.limit(limit + 1)
+    result = await db.execute(query)
+    controls = list(result.scalars().all())
+
+    # Get total count (with same filters, but without cursor/limit)
+    total_query = select(func.count()).select_from(Control)
+    if name is not None:
+        total_query = total_query.where(Control.name.ilike(f"%{name}%"))
+    if enabled is not None:
+        if enabled:
+            total_query = total_query.where(
+                or_(
+                    Control.data["enabled"].astext == "true",
+                    ~Control.data.has_key("enabled"),
+                )
+            )
+        else:
+            total_query = total_query.where(Control.data["enabled"].astext == "false")
+    if applies_to is not None:
+        total_query = total_query.where(Control.data["applies_to"].astext == applies_to)
+    if tag is not None:
+        total_query = total_query.where(Control.data["tags"].contains([tag]))
+    total_result = await db.execute(total_query)
+    total = total_result.scalar() or 0
+
+    # Check if there are more pages
+    has_more = len(controls) > limit
+    if has_more:
+        controls = controls[:-1]
+
+    # Build summaries (filtering already done at DB level)
+    summaries: list[ControlSummary] = []
+    for ctrl in controls:
+        # Extract summary fields from JSONB data
+        data = ctrl.data or {}
+        summaries.append(
+            ControlSummary(
+                id=ctrl.id,
+                name=ctrl.name,
+                description=data.get("description"),
+                enabled=data.get("enabled", True),
+                applies_to=data.get("applies_to"),
+                check_stage=data.get("check_stage"),
+                tags=data.get("tags", []),
+            )
+        )
+
+    # Determine next cursor
+    next_cursor: str | None = None
+    if has_more and controls:
+        next_cursor = str(controls[-1].id)
+
+    return ListControlsResponse(
+        controls=summaries,
+        pagination=PaginationInfo(
+            limit=limit,
+            total=total,
+            next_cursor=next_cursor,
+            has_more=has_more,
+        ),
+    )
+
+
+@router.delete(
+    "/{control_id}",
+    response_model=DeleteControlResponse,
+    summary="Delete a control",
+    response_description="Deletion confirmation with dissociation info",
+)
+async def delete_control(
+    control_id: int,
+    force: bool = Query(
+        False,
+        description="If true, dissociate from all policies before deleting. "
+        "If false, fail if control is associated with any policy.",
+    ),
+    db: AsyncSession = Depends(get_async_db),
+) -> DeleteControlResponse:
+    """
+    Delete a control by ID.
+
+    By default, deletion fails if the control is associated with any policy.
+    Use force=true to automatically dissociate and delete.
+
+    Args:
+        control_id: ID of the control to delete
+        force: If true, remove associations before deleting
+        db: Database session (injected)
+
+    Returns:
+        DeleteControlResponse with success flag and list of dissociated policies
+
+    Raises:
+        HTTPException 404: Control not found
+        HTTPException 409: Control is in use (and force=false)
+        HTTPException 500: Database error during deletion
+    """
+    # Find the control
+    result = await db.execute(select(Control).where(Control.id == control_id))
+    control = result.scalars().first()
+    if control is None:
+        raise HTTPException(
+            status_code=404, detail=f"Control with ID '{control_id}' not found"
+        )
+
+    # Check for associations with policies
+    assoc_result = await db.execute(
+        select(policy_controls.c.policy_id).where(
+            policy_controls.c.control_id == control_id
+        )
+    )
+    associated_policy_ids = [row[0] for row in assoc_result.all()]
+
+    if associated_policy_ids and not force:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": (
+                    f"Control '{control.name}' is associated with "
+                    f"{len(associated_policy_ids)} policy/policies"
+                ),
+                "policy_ids": associated_policy_ids,
+                "hint": "Use force=true to dissociate and delete, "
+                "or remove associations manually first",
+            },
+        )
+
+    # Remove associations if force=true
+    dissociated_from: list[int] = []
+    if associated_policy_ids:
+        await db.execute(
+            delete(policy_controls).where(
+                policy_controls.c.control_id == control_id
+            )
+        )
+        dissociated_from = associated_policy_ids
+        _logger.info(
+            f"Dissociated control '{control.name}' ({control_id}) "
+            f"from {len(dissociated_from)} policy/policies"
+        )
+
+    # Delete the control
+    await db.delete(control)
+    try:
+        await db.commit()
+        _logger.info(f"Deleted control '{control.name}' ({control_id})")
+    except Exception:
+        await db.rollback()
+        _logger.error(
+            f"Failed to delete control '{control.name}' ({control_id})",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete control '{control.name}': database error",
+        )
+
+    return DeleteControlResponse(success=True, dissociated_from=dissociated_from)
+
+
+@router.patch(
+    "/{control_id}",
+    response_model=PatchControlResponse,
+    summary="Update control metadata",
+    response_description="Updated control information",
+)
+async def patch_control(
+    control_id: int,
+    request: PatchControlRequest,
+    db: AsyncSession = Depends(get_async_db),
+) -> PatchControlResponse:
+    """
+    Update control metadata (name and/or enabled status).
+
+    This endpoint allows partial updates:
+    - To rename: provide 'name' field
+    - To enable/disable: provide 'enabled' field (updates the control's data)
+
+    Args:
+        control_id: ID of the control to update
+        request: Fields to update (name, enabled)
+        db: Database session (injected)
+
+    Returns:
+        PatchControlResponse with current control state
+
+    Raises:
+        HTTPException 404: Control not found
+        HTTPException 409: New name conflicts with existing control
+        HTTPException 422: Cannot update enabled status (control has no data configured)
+        HTTPException 500: Database error during update
+    """
+    # Find the control
+    result = await db.execute(select(Control).where(Control.id == control_id))
+    control = result.scalars().first()
+    if control is None:
+        raise HTTPException(
+            status_code=404, detail=f"Control with ID '{control_id}' not found"
+        )
+
+    # Track if anything changed
+    updated = False
+
+    # Update name if provided
+    if request.name is not None and request.name != control.name:
+        # Check for name collision
+        existing = await db.execute(
+            select(Control.id).where(Control.name == request.name)
+        )
+        if existing.first() is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Control with name '{request.name}' already exists",
+            )
+        control.name = request.name
+        updated = True
+
+    # Update enabled status if provided
+    current_enabled: bool | None = None
+    if request.enabled is not None:
+        if not control.data:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Cannot update enabled status: control '{control.name}' has no data "
+                    f"configured. Use PUT /{control_id}/data to configure the control first."
+                ),
+            )
+
+        try:
+            ctrl_def = ControlDefinition.model_validate(control.data)
+            if ctrl_def.enabled != request.enabled:
+                ctrl_def.enabled = request.enabled
+                control.data = ctrl_def.model_dump(mode="json", exclude_none=True)
+                updated = True
+            current_enabled = ctrl_def.enabled
+        except ValidationError as e:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Control '{control.name}' has corrupted data: {e}",
+            )
+    elif control.data:
+        # Get current enabled status for response
+        try:
+            ctrl_def = ControlDefinition.model_validate(control.data)
+            current_enabled = ctrl_def.enabled
+        except ValidationError:
+            # Data corrupted, use default enabled=True
+            _logger.warning("Control '%s' has invalid data, using default", control.name)
+
+    # Commit if anything changed
+    if updated:
+        try:
+            await db.commit()
+            _logger.info(f"Updated control '{control.name}' ({control_id})")
+        except Exception:
+            await db.rollback()
+            _logger.error(
+                f"Failed to update control '{control.name}' ({control_id})",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to update control '{control.name}': database error",
+            )
+
+    return PatchControlResponse(
+        success=True,
+        name=control.name,
+        enabled=current_enabled,
+    )

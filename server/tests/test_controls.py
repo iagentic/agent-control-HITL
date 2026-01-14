@@ -29,7 +29,7 @@ def test_get_control_data_initially_unconfigured(client: TestClient) -> None:
     resp = client.get(f"/api/v1/controls/{control_id}/data")
     # Then: 422 because empty data is not a valid ControlDefinition
     assert resp.status_code == 422
-    assert "corrupted data" in resp.json()["detail"]
+    assert "invalid data" in resp.json()["detail"]
 
 
 VALID_CONTROL_DATA = {
