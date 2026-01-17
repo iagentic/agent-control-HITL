@@ -34,6 +34,7 @@ jobs:
             engine
             plugins
             ci
+            infra
           requireScope: true
           # Allow these types without scope
           ignoreTypes: |
