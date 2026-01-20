@@ -22,10 +22,11 @@ import {
 import { type ColumnDef } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
 
+import { ErrorBoundary } from "@/components/error-boundary";
 import type { PluginInfo } from "@/core/api/types";
 import { usePlugins } from "@/core/hooks/query-hooks/use-plugins";
 
-import { EditControl } from "./edit-control";
+import { EditControlContent } from "./edit-control";
 
 type PluginWithId = PluginInfo & { id: string };
 
@@ -338,11 +339,21 @@ export function ControlStoreModal({
       </Box>
 
       {/* Edit Control Modal */}
-      <EditControl
+      <Modal
         opened={editModalOpened}
-        control={
-          selectedPlugin
-            ? {
+        onClose={handleEditModalClose}
+        title="Create Control"
+        size='xl'
+        keepMounted={false}
+        styles={{
+          title: { fontSize: "18px", fontWeight: 600 },
+          content: { maxWidth: "1200px", width: "90vw" },
+        }}
+      >
+        <ErrorBoundary variant="modal">
+          {selectedPlugin && (
+            <EditControlContent
+              control={{
                 id: 0,
                 name: selectedPlugin.name,
                 control: {
@@ -360,14 +371,15 @@ export function ControlStoreModal({
                   },
                   action: { decision: "deny" as const },
                 },
-              }
-            : null
-        }
-        agentId={agentId}
-        mode='create'
-        onClose={handleEditModalClose}
-        onSuccess={handleEditModalSuccess}
-      />
+              }}
+              agentId={agentId}
+              mode='create'
+              onClose={handleEditModalClose}
+              onSuccess={handleEditModalSuccess}
+            />
+          )}
+        </ErrorBoundary>
+      </Modal>
     </Modal>
   );
 }

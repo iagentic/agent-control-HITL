@@ -47,6 +47,11 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Playwright
+playwright-report/
+playwright/.cache/
+test-results/
+
 # Environment variables
 .env
 .env.local

@@ -3,7 +3,6 @@ import {
   Divider,
   Grid,
   Group,
-  Modal,
   Paper,
   ScrollArea,
   SegmentedControl,
@@ -17,7 +16,7 @@ import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { isApiError } from "@/core/api/errors";
-import type { ProblemDetail } from "@/core/api/types";
+import type { Control, ProblemDetail } from "@/core/api/types";
 import { useAddControlToAgent } from "@/core/hooks/query-hooks/use-add-control-to-agent";
 import { useUpdateControl } from "@/core/hooks/query-hooks/use-update-control";
 
@@ -28,24 +27,37 @@ import { getPlugin } from "./evaluators";
 import type {
   ConfigViewMode,
   ControlDefinitionFormValues,
-  EditControlProps,
+  EditControlMode,
   JsonViewMode,
 } from "./types";
 import { applyApiErrorsToForms } from "./utils";
 
 const EVALUATOR_CONFIG_HEIGHT = 400;
 
-export const EditControl = ({
-  opened,
+export interface EditControlContentProps {
+  /** The control to edit/create template */
+  control: Control;
+  /** Agent ID for invalidating queries on save */
+  agentId: string;
+  /** Mode: 'create' for new control, 'edit' for existing */
+  mode?: EditControlMode;
+  /** Callback when modal is closed */
+  onClose: () => void;
+  /** Callback when save succeeds */
+  onSuccess?: () => void;
+}
+
+export const EditControlContent = ({
   control,
   agentId,
   mode = "edit",
   onClose,
   onSuccess,
-}: EditControlProps) => {
+}: EditControlContentProps) => {
   // View mode state
   const [configViewMode, setConfigViewMode] = useState<ConfigViewMode>("form");
-  const [jsonViewMode, setJsonViewMode] = useState<JsonViewMode>("tree");
+  // TODO: Tree view disabled for now, defaulting to "raw"
+  const [jsonViewMode, setJsonViewMode] = useState<JsonViewMode>("raw");
   const [rawJsonText, setRawJsonText] = useState("");
   const [rawJsonError, setRawJsonError] = useState<string | null>(null);
 
@@ -68,7 +80,7 @@ export const EditControl = ({
   const formInitializedForPlugin = useRef<string>("");
 
   // Get plugin for this control
-  const pluginId = control?.control.evaluator.plugin || "";
+  const pluginId = control.control.evaluator.plugin || "";
   const plugin = useMemo(() => getPlugin(pluginId), [pluginId]);
 
   // Control definition form
@@ -166,7 +178,7 @@ export const EditControl = ({
   // Reset view mode and errors when plugin changes
   useEffect(() => {
     setConfigViewMode("form");
-    setJsonViewMode("tree");
+    setJsonViewMode("raw"); // TODO: Change to "tree" when re-enabling tree view
     setRawJsonText("");
     setRawJsonError(null);
     setApiError(null);
@@ -196,8 +208,6 @@ export const EditControl = ({
 
   // Handle form submission
   const handleSubmit = async (values: ControlDefinitionFormValues) => {
-    if (!control) return;
-
     // Clear previous errors
     setApiError(null);
     setUnmappedErrors([]);
@@ -296,126 +306,115 @@ export const EditControl = ({
   const FormComponent = plugin?.FormComponent;
 
   return (
-    <Modal
-      opened={opened}
-      onClose={onClose}
-      title={isCreating ? "Create Control" : "Configure Control"}
-      size='xl'
-      keepMounted={false}
-      styles={{
-        title: { fontSize: "18px", fontWeight: 600 },
-        content: { maxWidth: "1200px", width: "90vw" },
-      }}
-    >
-      <form onSubmit={definitionForm.onSubmit(handleSubmit)}>
-        <TextInput
-          label='Control name'
-          placeholder='Enter control name'
-          mb='lg'
-          size='sm'
-          {...definitionForm.getInputProps("name")}
-        />
+    <form onSubmit={definitionForm.onSubmit(handleSubmit)}>
+      <TextInput
+        label="Control name"
+        placeholder="Enter control name"
+        mb="lg"
+        size="sm"
+        {...definitionForm.getInputProps("name")}
+      />
 
-        <Grid gutter='xl'>
-          <Grid.Col span={4}>
-            <ScrollArea h={EVALUATOR_CONFIG_HEIGHT + 50} type='auto'>
-              <ControlDefinitionForm form={definitionForm} />
-            </ScrollArea>
-          </Grid.Col>
+      <Grid gutter="xl">
+        <Grid.Col span={4}>
+          <ScrollArea h={EVALUATOR_CONFIG_HEIGHT + 50} type="auto">
+            <ControlDefinitionForm form={definitionForm} />
+          </ScrollArea>
+        </Grid.Col>
 
-          <Grid.Col span={8}>
-            <Stack gap='md'>
-              <Group justify='space-between' align='center'>
-                <Group gap='xs'>
-                  <Text size='sm' fw={500}>
-                    Evaluator configuration
-                  </Text>
-                  <Anchor
-                    href='https://docs.galileo.ai/controls'
-                    target='_blank'
-                    size='xs'
-                    c='blue'
-                    underline='never'
-                  >
-                    <Group gap={2} align='center'>
-                      Docs <IconExternalLink size={12} />
-                    </Group>
-                  </Anchor>
-                </Group>
-                <SegmentedControl
-                  value={configViewMode}
-                  onChange={handleConfigViewModeChange}
-                  data={[
-                    { value: "form", label: "Form" },
-                    { value: "json", label: "JSON" },
-                  ]}
-                  size='xs'
-                />
+        <Grid.Col span={8}>
+          <Stack gap="md">
+            <Group justify="space-between" align="center">
+              <Group gap="xs">
+                <Text size="sm" fw={500}>
+                  Evaluator configuration
+                </Text>
+                <Anchor
+                  href="https://docs.galileo.ai/controls"
+                  target="_blank"
+                  size="xs"
+                  c="blue"
+                  underline="never"
+                >
+                  <Group gap={2} align="center">
+                    Docs <IconExternalLink size={12} />
+                  </Group>
+                </Anchor>
               </Group>
+              <SegmentedControl
+                value={configViewMode}
+                onChange={handleConfigViewModeChange}
+                data={[
+                  { value: "form", label: "Form" },
+                  { value: "json", label: "JSON" },
+                ]}
+                size="xs"
+              />
+            </Group>
 
-              {configViewMode === "form" && (
-                <Paper withBorder radius='sm' p={16}>
-                  <ScrollArea h={EVALUATOR_CONFIG_HEIGHT} type='auto'>
-                    {FormComponent ? (
-                      <FormComponent form={evaluatorForm} />
-                    ) : (
-                      <Text c='dimmed' ta='center' py='xl'>
-                        No form available for this plugin. Use JSON view to
-                        configure.
-                      </Text>
-                    )}
-                  </ScrollArea>
-                </Paper>
-              )}
+            {configViewMode === "form" && (
+              <Paper withBorder radius="sm" p={16}>
+                <ScrollArea h={EVALUATOR_CONFIG_HEIGHT} type="auto">
+                  {FormComponent ? (
+                    <FormComponent form={evaluatorForm} />
+                  ) : (
+                    <Text c="dimmed" ta="center" py="xl">
+                      No form available for this plugin. Use JSON view to
+                      configure.
+                    </Text>
+                  )}
+                </ScrollArea>
+              </Paper>
+            )}
 
-              {configViewMode === "json" && (
-                <EvaluatorJsonView
-                  config={getEvaluatorConfig()}
-                  onChange={syncJsonToForm}
-                  jsonViewMode={jsonViewMode}
-                  onJsonViewModeChange={handleJsonViewModeChange}
-                  rawJsonText={rawJsonText}
-                  onRawJsonTextChange={handleRawJsonChange}
-                  rawJsonError={rawJsonError}
-                />
-              )}
-            </Stack>
-          </Grid.Col>
-        </Grid>
+            {configViewMode === "json" && (
+              <EvaluatorJsonView
+                config={getEvaluatorConfig()}
+                onChange={syncJsonToForm}
+                jsonViewMode={jsonViewMode}
+                onJsonViewModeChange={handleJsonViewModeChange}
+                rawJsonText={rawJsonText}
+                onRawJsonTextChange={handleRawJsonChange}
+                rawJsonError={rawJsonError}
+              />
+            )}
+          </Stack>
+        </Grid.Col>
+      </Grid>
 
-        {/* API Error Alert */}
-        {apiError && (
-          <>
-            <Divider mt='xl' mb='md' />
-            <ApiErrorAlert
-              error={apiError}
-              unmappedErrors={unmappedErrors}
-              onClose={() => setApiError(null)}
-            />
-          </>
-        )}
+      {/* API Error Alert */}
+      {apiError && (
+        <>
+          <Divider mt="xl" mb="md" />
+          <ApiErrorAlert
+            error={apiError}
+            unmappedErrors={unmappedErrors}
+            onClose={() => setApiError(null)}
+          />
+        </>
+      )}
 
-        <Divider mt='xl' mb='md' />
+      <Divider mt="xl" mb="md" />
 
-        <Group justify='flex-end'>
-          <Button
-            variant='outline'
-            onClick={onClose}
-            type='button'
-            data-testid='cancel-button'
-          >
-            Cancel
-          </Button>
-          <Button
-            variant='filled'
-            type='submit'
-            data-testid='save-button'
-            loading={isPending}
-          >
-            {isCreating ? "Create" : "Save"}
-          </Button>
-        </Group>
-      </form>
-    </Modal>
+      <Group justify="flex-end">
+        <Button
+          variant="outline"
+          onClick={onClose}
+          type="button"
+          data-testid="cancel-button"
+        >
+          Cancel
+        </Button>
+        <Button
+          variant="filled"
+          type="submit"
+          data-testid="save-button"
+          loading={isPending}
+        >
+          {isCreating ? "Create" : "Save"}
+        </Button>
+      </Group>
+    </form>
   );
 };
+

@@ -6,6 +6,7 @@ import {
   Center,
   Group,
   Loader,
+  Modal,
   Paper,
   Stack,
   Tabs,
@@ -23,13 +24,14 @@ import {
 import { type ColumnDef } from "@tanstack/react-table";
 import { useState } from "react";
 
+import { ErrorBoundary } from "@/components/error-boundary";
 import type { Control } from "@/core/api/types";
 import { useAgent } from "@/core/hooks/query-hooks/use-agent";
 import { useAgentControls } from "@/core/hooks/query-hooks/use-agent-controls";
 import { useUpdateControl } from "@/core/hooks/query-hooks/use-update-control";
 
 import { ControlStoreModal } from "./control-store-modal";
-import { EditControl } from "./edit-control";
+import { EditControlContent } from "./edit-control";
 
 interface AgentDetailPageProps {
   agentId: string;
@@ -321,14 +323,28 @@ const AgentDetailPage = ({ agentId }: AgentDetailPageProps) => {
         agentId={agentId}
       />
 
-      {/* Edit Control Modal */}
-      <EditControl
+      {/* Edit Control Modal - Modal shell owned by parent, content wrapped in ErrorBoundary */}
+      <Modal
         opened={editModalOpened}
-        control={selectedControl}
-        agentId={agentId}
         onClose={handleCloseEditModal}
-        onSuccess={handleEditControlSuccess}
-      />
+        title="Configure Control"
+        size="xl"
+        styles={{
+          title: { fontSize: "18px", fontWeight: 600 },
+          content: { maxWidth: "1200px", width: "90vw" },
+        }}
+      >
+        <ErrorBoundary variant="modal">
+          {selectedControl && (
+            <EditControlContent
+              control={selectedControl}
+              agentId={agentId}
+              onClose={handleCloseEditModal}
+              onSuccess={handleEditControlSuccess}
+            />
+          )}
+        </ErrorBoundary>
+      </Modal>
     </Box>
   );
 };

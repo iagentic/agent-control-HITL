@@ -1,15 +1,15 @@
 import {
   Box,
-  Group,
+  // Group,
   ScrollArea,
-  SegmentedControl,
+  // SegmentedControl,
   Stack,
   Textarea,
 } from "@mantine/core";
 
 import { JsonEditor } from "@/components/json-editor";
 
-import type { EvaluatorJsonViewProps, JsonViewMode } from "./types";
+import type { EvaluatorJsonViewProps } from "./types";
 
 const JSON_VIEW_HEIGHT = 400;
 
@@ -17,19 +17,15 @@ export const EvaluatorJsonView = ({
   config,
   onChange,
   jsonViewMode,
-  onJsonViewModeChange,
+  onJsonViewModeChange: _onJsonViewModeChange,
   rawJsonText,
   onRawJsonTextChange,
   rawJsonError,
 }: EvaluatorJsonViewProps) => {
-  const handleModeChange = (value: string) => {
-    onJsonViewModeChange(value as JsonViewMode);
-  };
-
   return (
     <Stack gap='sm'>
-      {/* Tree/Raw sub-toggle */}
-      <Group justify='flex-end'>
+      {/* TODO: Re-enable tree/raw toggle when needed */}
+      {/* <Group justify='flex-end'>
         <SegmentedControl
           value={jsonViewMode}
           onChange={handleModeChange}
@@ -39,7 +35,7 @@ export const EvaluatorJsonView = ({
           ]}
           size='xs'
         />
-      </Group>
+      </Group> */}
 
       {jsonViewMode === "tree" ? (
         <ScrollArea h={JSON_VIEW_HEIGHT} type='auto'>

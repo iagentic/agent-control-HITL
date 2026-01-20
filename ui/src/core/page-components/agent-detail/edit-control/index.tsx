@@ -1,2 +1,2 @@
-export { EditControl } from "./edit-control";
-export type { EditControlProps } from "./types";
+export type { EditControlContentProps } from "./edit-control-content";
+export { EditControlContent } from "./edit-control-content";

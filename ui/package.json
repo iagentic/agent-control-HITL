@@ -9,7 +9,12 @@
     "lint": "next lint",
     "lint:fix": "next lint --fix",
     "typecheck": "tsc --noEmit",
-    "fetch-api-types": "openapi-typescript http://localhost:8000/openapi.json -o src/core/api/generated/api-types.ts"
+    "fetch-api-types": "openapi-typescript http://localhost:8000/openapi.json -o src/core/api/generated/api-types.ts",
+    "test:integration": "playwright test",
+    "test:integration:ui": "playwright test --ui",
+    "test:integration:headed": "playwright test --headed",
+    "test:integration:debug": "playwright test --debug",
+    "test:integration:report": "playwright show-report"
   },
   "dependencies": {
     "@mantine/code-highlight": "7.17.5",
@@ -37,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
+    "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

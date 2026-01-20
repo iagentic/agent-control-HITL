@@ -9,7 +9,6 @@ import {
   useMantineColorScheme,
 } from "@mantine/core";
 import {
-  IconAutomaticGearbox,
   IconBook,
   IconHelp,
   IconHexagons,
@@ -20,6 +19,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { type ReactNode, useState } from "react";
 
+import { ErrorBoundary } from "@/components/error-boundary";
 import { Logo } from "@/components/icons/galileo-logos.constants";
 
 // import { useAgentsInfinite } from "@/core/hooks/query-hooks/use-agents-infinite";
@@ -171,12 +171,14 @@ export function AppLayout({ children }: AppLayoutProps) {
           <Stack gap={0}>
             <Stack px='md'>
               <Group h='50px' justify='space-between' align="center">
-                <Group gap='xs' >
-                  <Logo />
-                  <Text size='md' fw={600}>
-                    Agent Control
-                  </Text>
-                </Group>
+                <UnstyledButton component={Link} href='/'>
+                  <Group gap='xs'>
+                    <Logo />
+                    <Text size='md' fw={600}>
+                      Agent Control
+                    </Text>
+                  </Group>
+                </UnstyledButton>
                 {/* <ActionIcon
                   onClick={() => setDesktopOpened(!desktopOpened)}
                   variant='subtle'
@@ -242,12 +244,13 @@ export function AppLayout({ children }: AppLayoutProps) {
                 </Box>
               )} */}
 
-              <NavItem
+              {/* TODO: Re-enable when controls page is implemented */}
+              {/* <NavItem
                 href='/controls'
                 icon={<IconAutomaticGearbox size={18} stroke={2} />}
                 label='All controls'
                 onClick={closeNavbar}
-              />
+              /> */}
             </Stack>
           </Stack>
 
@@ -256,7 +259,9 @@ export function AppLayout({ children }: AppLayoutProps) {
         </Stack>
       </AppShell.Navbar>
 
-      <AppShell.Main className={classes.main}>{children}</AppShell.Main>
+        <AppShell.Main className={classes.main}>
+          <ErrorBoundary variant="content">{children}</ErrorBoundary>
+        </AppShell.Main>
     </AppShell>
   );
 }

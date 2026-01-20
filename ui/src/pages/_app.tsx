@@ -12,6 +12,7 @@ import { JupiterThemeProvider } from "@rungalileo/jupiter-ds";
 import type { AppProps } from "next/app";
 import Head from "next/head";
 
+import { ErrorBoundary } from "@/components/error-boundary";
 import { QueryProvider } from "@/core/providers/query-provider";
 import type { NextPageWithLayout } from "@/core/types/page";
 
@@ -100,13 +101,15 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
         <meta name='theme-color' content='#644DF9' />
       </Head>
 
-      <QueryProvider>
-        <MantineProvider defaultColorScheme="auto">
-          <JupiterThemeProvider>
-            {getLayout(<Component {...pageProps} />)}
-          </JupiterThemeProvider>
-        </MantineProvider>
-      </QueryProvider>
+      <ErrorBoundary variant="page">
+        <QueryProvider>
+          <MantineProvider defaultColorScheme="auto">
+            <JupiterThemeProvider>
+              {getLayout(<Component {...pageProps} />)}
+            </JupiterThemeProvider>
+          </MantineProvider>
+        </QueryProvider>
+      </ErrorBoundary>
     </>
   );
 }

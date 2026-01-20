@@ -1,0 +1,107 @@
+import type { ListAgentsResponse } from "@/core/api/types";
+
+import { expect, mockData, test } from "./fixtures";
+
+test.describe("Home Page - Agents Overview", () => {
+  test("displays the page header correctly", async ({ mockedPage }) => {
+    await mockedPage.goto("/");
+
+    // Check page title
+    await expect(mockedPage.getByRole("heading", { name: "Agents overview" })).toBeVisible();
+
+    // Check subtitle
+    await expect(
+      mockedPage.getByText("Monitor activity and control health across all deployed agents.")
+    ).toBeVisible();
+
+    // Check search input exists
+    await expect(mockedPage.getByPlaceholder("Search or apply filter...")).toBeVisible();
+  });
+
+  test("displays the agents table with data", async ({ mockedPage }) => {
+    await mockedPage.goto("/");
+
+    // Wait for the table to load
+    await expect(mockedPage.getByRole("table")).toBeVisible();
+
+    // Check table headers
+    await expect(mockedPage.getByRole("columnheader", { name: "Agent name" })).toBeVisible();
+    await expect(mockedPage.getByRole("columnheader", { name: "Type" })).toBeVisible();
+    await expect(mockedPage.getByRole("columnheader", { name: "Active controls" })).toBeVisible();
+
+    // Check that agents from mock data are displayed
+    for (const agent of mockData.agents.agents) {
+      await expect(mockedPage.getByText(agent.agent_name)).toBeVisible();
+    }
+  });
+
+  test("shows loading state initially", async ({ page }) => {
+    // Set up a delayed API response with proper type
+    const delayedResponse: ListAgentsResponse = mockData.agents;
+
+    await page.route("**/api/v1/agents?**", async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(delayedResponse),
+      });
+    });
+
+    await page.goto("/");
+
+    // Check for loading indicator
+    await expect(page.getByText("Loading agents...")).toBeVisible();
+
+    // Wait for table to appear
+    await expect(page.getByRole("table")).toBeVisible();
+  });
+
+  test("navigates to agent detail page when clicking on a row", async ({ mockedPage }) => {
+    await mockedPage.goto("/");
+
+    // Wait for the table to load
+    await expect(mockedPage.getByRole("table")).toBeVisible();
+
+    // Click on the first agent
+    const firstAgent = mockData.agents.agents[0];
+    await mockedPage.getByText(firstAgent.agent_name).click();
+
+    // Verify navigation to agent detail page
+    await expect(mockedPage).toHaveURL(`/agents/${firstAgent.agent_id}`);
+  });
+
+  test("displays correct active controls count for each agent", async ({ mockedPage }) => {
+    await mockedPage.goto("/");
+
+    // Wait for the table to load
+    await expect(mockedPage.getByRole("table")).toBeVisible();
+
+    // Check that control counts are displayed in the table
+    // Use first() since multiple agents might have the same count
+    const firstAgent = mockData.agents.agents[0];
+    await expect(
+      mockedPage
+        .getByRole("cell", { name: String(firstAgent.active_controls_count) })
+        .first()
+    ).toBeVisible();
+  });
+
+  test("handles API error gracefully", async ({ page }) => {
+    // Mock API to return error
+    await page.route("**/api/v1/agents?**", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Internal server error" }),
+      });
+    });
+
+    await page.goto("/");
+
+    // Check for error message
+    await expect(page.getByText("Error loading agents")).toBeVisible();
+    await expect(page.getByText("Failed to fetch agents. Please try again later.")).toBeVisible();
+  });
+});
+
