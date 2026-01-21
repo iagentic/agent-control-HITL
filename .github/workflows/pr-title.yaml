@@ -37,6 +37,7 @@ jobs:
             docs
             infra
             ui
+            examples
           requireScope: true
           # Allow these types without scope
           ignoreTypes: |
