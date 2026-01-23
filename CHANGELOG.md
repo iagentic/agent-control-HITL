@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.1.1 (2026-01-23)
+
+### Chores
+
+- **infra**: Publish models and sdk on release
+  ([#71](https://github.com/rungalileo/agent-control/pull/71),
+  [`7fcf53a`](https://github.com/rungalileo/agent-control/commit/7fcf53a4392752e21f9eba77498bcc9ec2593bce))
+
+
 ## v1.1.0 (2026-01-23)
 
 ### Bug Fixes
