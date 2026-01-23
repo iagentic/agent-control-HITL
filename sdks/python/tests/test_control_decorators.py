@@ -183,8 +183,8 @@ class TestPrePostExecution:
         """Test that both pre and post checks are called."""
         call_stages = []
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            call_stages.append(check_stage)
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            call_stages.append(stage)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
@@ -204,8 +204,8 @@ class TestPrePostExecution:
         """Test that pre-check block prevents function execution."""
         function_executed = False
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            if check_stage == "pre":
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            if stage == "pre":
                 return mock_unsafe_response
             return mock_safe_response
 
@@ -226,11 +226,11 @@ class TestPrePostExecution:
     @pytest.mark.asyncio
     async def test_post_check_receives_output(self, mock_agent, mock_safe_response):
         """Test that post-check receives the function output."""
-        captured_payload = {}
+        captured_step = {}
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            if check_stage == "post":
-                captured_payload.update(payload)
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            if stage == "post":
+                captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
@@ -242,8 +242,8 @@ class TestPrePostExecution:
 
             await chat("Hello!")
             
-            assert "output" in captured_payload
-            assert "Generated response" in captured_payload["output"]
+            assert "output" in captured_step
+            assert "Generated response" in captured_step["output"]
 
 
 # =============================================================================
@@ -256,11 +256,11 @@ class TestInputExtraction:
     @pytest.mark.asyncio
     async def test_extracts_input_param(self, mock_agent, mock_safe_response):
         """Test extraction of 'input' parameter."""
-        captured_payload = {}
+        captured_step = {}
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            if check_stage == "pre":
-                captured_payload.update(payload)
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            if stage == "pre":
+                captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
@@ -272,16 +272,16 @@ class TestInputExtraction:
 
             await process("hello world")
             
-            assert captured_payload["input"] == "hello world"
+            assert captured_step["input"] == "hello world"
 
     @pytest.mark.asyncio
     async def test_extracts_message_param(self, mock_agent, mock_safe_response):
         """Test extraction of 'message' parameter."""
-        captured_payload = {}
+        captured_step = {}
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            if check_stage == "pre":
-                captured_payload.update(payload)
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            if stage == "pre":
+                captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
@@ -293,16 +293,16 @@ class TestInputExtraction:
 
             await chat("Hello!", {"user": "test"})
             
-            assert captured_payload["input"] == "Hello!"
+            assert captured_step["input"] == "Hello!"
 
     @pytest.mark.asyncio
     async def test_extracts_query_param(self, mock_agent, mock_safe_response):
         """Test extraction of 'query' parameter."""
-        captured_payload = {}
+        captured_step = {}
 
-        async def mock_evaluate(agent_uuid, payload, check_stage, server_url):
-            if check_stage == "pre":
-                captured_payload.update(payload)
+        async def mock_evaluate(agent_uuid, step, stage, server_url):
+            if stage == "pre":
+                captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
@@ -314,7 +314,7 @@ class TestInputExtraction:
 
             await search("test query")
             
-            assert captured_payload["input"] == "test query"
+            assert captured_step["input"] == "test query"
 
 
 # =============================================================================

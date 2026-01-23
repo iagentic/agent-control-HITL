@@ -185,13 +185,13 @@ Initialize Agent Protect with your agent's information.
 #### `@protect()`
 
 ```python
-def protect(step_id: str, **data_sources):
+def protect(step_name: str, **data_sources):
 ```
 
 Decorator to protect a function with rules from `rules.yaml`.
 
 **Parameters:**
-- `step_id`: Step identifier matching rules.yaml
+- `step_name`: Step name matching rules.yaml
 - `**data_sources`: Mapping of data types to parameter names
 
 **Example:**
@@ -250,7 +250,6 @@ Create a `rules.yaml` in your project:
 
 ```yaml
 input-validation:
-  step_id: "input-check"
   description: "Validate user inputs"
   rules:
     - match:

@@ -135,8 +135,8 @@ Controls are defined via the API or dashboard. Each control specifies what to ch
   "name": "block-ssn-output",
   "description": "Block Social Security Numbers in responses",
   "enabled": true,
-  "applies_to": "llm_call",
-  "check_stage": "post",
+  "execution": "server",
+  "scope": { "step_types": ["llm_inference"], "stages": ["post"] },
   "selector": { "path": "output" },
   "evaluator": {
     "plugin": "regex",
@@ -153,8 +153,8 @@ Controls are defined via the API or dashboard. Each control specifies what to ch
   "name": "block-toxic-input",
   "description": "Block toxic or harmful user messages",
   "enabled": true,
-  "applies_to": "llm_call",
-  "check_stage": "pre",
+  "execution": "server",
+  "scope": { "step_types": ["llm_inference"], "stages": ["pre"] },
   "selector": { "path": "input" },
   "evaluator": {
     "plugin": "galileo-luna2",

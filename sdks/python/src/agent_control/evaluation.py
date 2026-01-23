@@ -20,8 +20,7 @@ try:
         EvaluationResponse,
         EvaluationResult,
         EvaluatorResult,
-        LlmCall,
-        ToolCall,
+        Step,
     )
 
     MODELS_AVAILABLE = True
@@ -30,8 +29,7 @@ except ImportError:
     MODELS_AVAILABLE = False
     ENGINE_AVAILABLE = False
     # Runtime fallbacks
-    ToolCall = Any  # type: ignore
-    LlmCall = Any  # type: ignore
+    Step = Any  # type: ignore
     EvaluationRequest = Any  # type: ignore
     EvaluationResponse = Any  # type: ignore
     EvaluationResult = Any  # type: ignore
@@ -44,8 +42,8 @@ except ImportError:
 async def check_evaluation(
     client: AgentControlClient,
     agent_uuid: UUID,
-    payload: "ToolCall | LlmCall",
-    check_stage: Literal["pre", "post"],
+    step: "Step",
+    stage: Literal["pre", "post"],
 ) -> EvaluationResult:
     """
     Check if agent interaction is safe.
@@ -53,8 +51,8 @@ async def check_evaluation(
     Args:
         client: AgentControlClient instance
         agent_uuid: UUID of the agent making the request
-        payload: Either a ToolCall or LlmCall instance
-        check_stage: 'pre' for pre-execution check, 'post' for post-execution check
+        step: Step payload to evaluate
+        stage: 'pre' for pre-execution check, 'post' for post-execution check
 
     Returns:
         EvaluationResult with safety analysis
@@ -63,13 +61,13 @@ async def check_evaluation(
         httpx.HTTPError: If request fails
 
     Example:
-        # Pre-check before LLM call
+        # Pre-check before LLM inference
         async with AgentControlClient() as client:
             result = await check_evaluation(
                 client=client,
                 agent_uuid=agent.agent_id,
-                payload=LlmCall(input="User question", output=None),
-                check_stage="pre"
+                step={"type": "llm_inference", "name": "support-answer", "input": "User question"},
+                stage="pre"
             )
 
         # Post-check after tool execution
@@ -77,37 +75,43 @@ async def check_evaluation(
             result = await check_evaluation(
                 client=client,
                 agent_uuid=agent.agent_id,
-                payload=ToolCall(
-                    tool_name="search",
-                    arguments={"query": "test"},
-                    output={"results": []}
-                ),
-                check_stage="post"
+                step={
+                    "type": "tool",
+                    "name": "search",
+                    "input": {"query": "test"},
+                    "output": {"results": []},
+                },
+                stage="post"
             )
     """
     if MODELS_AVAILABLE:
         request = EvaluationRequest(
             agent_uuid=agent_uuid,
-            payload=payload,
-            check_stage=check_stage
+            step=step,
+            stage=stage,
         )
         request_payload = request.model_dump(mode="json")
     else:
         # Fallback for when models aren't available
-        payload_dict = {
-            "tool_name": getattr(payload, "tool_name", None),
-            "arguments": getattr(payload, "arguments", None),
-            "input": getattr(payload, "input", None),
-            "output": getattr(payload, "output", None),
-            "context": getattr(payload, "context", None),
-        }
-        # Remove None values
-        payload_dict = {k: v for k, v in payload_dict.items() if v is not None}
+        if isinstance(step, dict):
+            step_dict = step
+        else:
+            step_dict = {
+                "type": getattr(step, "type", None),
+                "name": getattr(step, "name", None),
+                "input": getattr(step, "input", None),
+                "output": getattr(step, "output", None),
+                "context": getattr(step, "context", None),
+            }
+            step_dict = {k: v for k, v in step_dict.items() if v is not None}
+
+        if not step_dict.get("name"):
+            raise ValueError("step.name is required for evaluation requests")
 
         request_payload = {
             "agent_uuid": str(agent_uuid),
-            "payload": payload_dict,
-            "check_stage": check_stage,
+            "step": step_dict,
+            "stage": stage,
         }
 
     response = await client.http_client.post("/api/v1/evaluation", json=request_payload)
@@ -183,15 +187,15 @@ def _merge_results(
 async def check_evaluation_with_local(
     client: AgentControlClient,
     agent_uuid: UUID,
-    payload: "ToolCall | LlmCall",
-    check_stage: Literal["pre", "post"],
+    step: "Step",
+    stage: Literal["pre", "post"],
     controls: list[dict[str, Any]],
 ) -> EvaluationResult:
     """
     Check if agent interaction is safe, running local controls first.
 
-    This function executes controls with `local=True` locally in the SDK,
-    then calls the server for `local=False` controls. If a local control
+    This function executes controls with execution="sdk" locally in the SDK,
+    then calls the server for execution="server" controls. If a local control
     denies, it short-circuits and returns immediately without calling the server.
 
     Note on parse errors: If a local control fails to parse/validate, it is
@@ -202,8 +206,8 @@ async def check_evaluation_with_local(
     Args:
         client: AgentControlClient instance
         agent_uuid: UUID of the agent making the request
-        payload: Either a ToolCall or LlmCall instance
-        check_stage: 'pre' for pre-execution check, 'post' for post-execution check
+        step: Step payload to evaluate
+        stage: 'pre' for pre-execution check, 'post' for post-execution check
         controls: List of control dicts from initAgent response
                   (each has 'id', 'name', 'control' keys)
 
@@ -216,15 +220,15 @@ async def check_evaluation_with_local(
 
     Example:
         # Get controls from initAgent
-        init_response = await register_agent(client, agent, tools)
+        init_response = await register_agent(client, agent, steps)
         controls = init_response.get('controls', [])
 
         # Check with local execution
         result = await check_evaluation_with_local(
             client=client,
             agent_uuid=agent.agent_id,
-            payload=LlmCall(input="User question", output=None),
-            check_stage="pre",
+            step={"type": "llm_inference", "name": "support-answer", "input": "User question"},
+            stage="pre",
             controls=controls,
         )
     """
@@ -241,7 +245,8 @@ async def check_evaluation_with_local(
 
     for c in controls:
         control_data = c.get("control", {})
-        is_local = control_data.get("local", False)
+        execution = control_data.get("execution", "server")
+        is_local = execution == "sdk"
 
         # Track server controls early, before any parsing that might fail
         if not is_local:
@@ -257,15 +262,15 @@ async def check_evaluation_with_local(
             # Agent-scoped plugins (agent:evaluator) are server-only
             if ":" in plugin_name:
                 raise RuntimeError(
-                    f"Control '{c['name']}' is marked local=True but uses "
+                    f"Control '{c['name']}' is marked execution='sdk' but uses "
                     f"agent-scoped evaluator '{plugin_name}' which is server-only. "
-                    f"Set local=False or use a built-in plugin."
+                    "Set execution='server' or use a built-in plugin."
                 )
             if plugin_name not in list_plugins():
                 raise RuntimeError(
-                    f"Control '{c['name']}' is marked local=True but plugin "
+                    f"Control '{c['name']}' is marked execution='sdk' but plugin "
                     f"'{plugin_name}' is not available in the SDK. "
-                    f"Install the plugin or set local=False."
+                    "Install the plugin or set execution='server'."
                 )
 
             local_controls.append(_ControlAdapter(
@@ -315,8 +320,8 @@ async def check_evaluation_with_local(
     # Build evaluation request
     request = EvaluationRequest(
         agent_uuid=agent_uuid,
-        payload=payload,
-        check_stage=check_stage,
+        step=step,
+        stage=stage,
     )
 
     # Run local controls if any
@@ -372,4 +377,3 @@ async def check_evaluation_with_local(
 
     # No controls at all - still include parse_errors if any
     return _with_parse_errors(EvaluationResult(is_safe=True, confidence=1.0))
-

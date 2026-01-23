@@ -27,7 +27,10 @@ Usage:
     # Or use the client directly for server-side checks
     async with agent_control.AgentControlClient() as client:
         result = await agent_control.evaluation.check_evaluation(
-            client, agent_uuid, payload, "pre"
+            client,
+            agent_uuid,
+            step={"type": "llm_inference", "name": "chat", "input": "Hello"},
+            stage="pre",
         )
 """
 
@@ -56,8 +59,8 @@ try:
         EvaluationRequest,
         EvaluationResult,
         EvaluatorConfig,
-        LlmCall,
-        ToolCall,
+        Step,
+        StepSchema,
     )
     MODELS_AVAILABLE = True
 except ImportError:
@@ -87,40 +90,48 @@ except ImportError:
                 for k, v in kwargs.items():
                     setattr(self, k, v)
 
-        class ToolCall:  # runtime fallback
+        class Step:  # runtime fallback
             def __init__(
                 self,
-                tool_name: str,
-                arguments: dict[str, Any],
-                output: str | dict[str, Any] | None = None,
+                type: str,
+                name: str,
+                input: Any,
+                output: Any = None,
                 context: dict[str, Any] | None = None,
             ):
-                self.tool_name = tool_name
-                self.arguments = arguments
-                self.output = output
-                self.context = context
-
-        class LlmCall:  # runtime fallback
-            def __init__(
-                self,
-                input: str | dict[str, Any],
-                output: str | dict[str, Any] | None = None,
-                context: dict[str, Any] | None = None,
-            ):
+                self.type = type
+                self.name = name
                 self.input = input
                 self.output = output
                 self.context = context
+
+        class StepSchema:  # runtime fallback
+            def __init__(
+                self,
+                type: str,
+                name: str,
+                description: str | None = None,
+                input_schema: dict[str, Any] | None = None,
+                output_schema: dict[str, Any] | None = None,
+                metadata: dict[str, Any] | None = None,
+            ):
+                self.type = type
+                self.name = name
+                self.description = description
+                self.input_schema = input_schema
+                self.output_schema = output_schema
+                self.metadata = metadata
 
         class EvaluationRequest:  # runtime fallback
             def __init__(
                 self,
                 agent_uuid: UUID,
-                payload: ToolCall | LlmCall,
-                check_stage: str,
+                step: Step,
+                stage: str,
             ):
                 self.agent_uuid = agent_uuid
-                self.payload = payload
-                self.check_stage = check_stage
+                self.step = step
+                self.stage = stage
 
         class EvaluationResult:  # runtime fallback
             def __init__(
@@ -159,7 +170,7 @@ def init(
     server_url: str | None = None,
     api_key: str | None = None,
     controls_file: str | None = None,
-    tools: list[dict[str, Any]] | None = None,
+    steps: list[dict[str, Any]] | None = None,
     **kwargs: object
 ) -> Agent:
     """
@@ -184,8 +195,8 @@ def init(
                    or http://localhost:8000)
         api_key: Optional API key for authentication (defaults to AGENT_CONTROL_API_KEY env var)
         controls_file: Optional explicit path to controls.yaml (auto-discovered if not provided)
-        tools: Optional list of tools with their schemas for registration:
-               [{"tool_name": "search", "arguments": {...}, "output_schema": {...}}]
+        steps: Optional list of step schemas for registration:
+               [{"type": "tool", "name": "search", "input_schema": {...}, "output_schema": {...}}]
         **kwargs: Additional metadata to store with the agent
 
     Returns:
@@ -199,10 +210,11 @@ def init(
             agent_id="csbot-prod-v1",
             agent_description="Handles customer inquiries and support tickets",
             agent_version="2.1.0",
-            tools=[
+            steps=[
                 {
-                    "tool_name": "search_knowledge_base",
-                    "arguments": {"query": {"type": "string"}},
+                    "type": "tool",
+                    "name": "search_knowledge_base",
+                    "input_schema": {"query": {"type": "string"}},
                     "output_schema": {"results": {"type": "array"}}
                 }
             ]
@@ -267,12 +279,12 @@ def init(
                     print(f"⚠️  Server not available: {e}")
                     return None
 
-                # Register agent with tools
+                # Register agent with steps
                 try:
                     response = await agents.register_agent(
                         client,
                         _current_agent,
-                        tools=tools or []
+                        steps=steps or []
                     )
                     created = response.get('created', False)
                     controls: list[dict[str, Any]] = response.get('controls', [])
@@ -282,8 +294,8 @@ def init(
                     else:
                         print(f"✓ Agent updated: {agent_name} (ID: {_agent_uuid})")
 
-                    if tools:
-                        print(f"  Registered {len(tools)} tool(s)")
+                    if steps:
+                        print(f"  Registered {len(steps)} step(s)")
 
                     return controls
                 except Exception as e:
@@ -355,7 +367,7 @@ async def get_agent(
     Returns:
         Dictionary containing:
             - agent: Agent metadata (agent_name, agent_id, etc.)
-            - tools: List of tools registered with the agent
+            - steps: List of steps registered with the agent
 
     Raises:
         httpx.HTTPError: If request fails or agent not found
@@ -368,7 +380,7 @@ async def get_agent(
         async def main():
             agent_data = await agent_control.get_agent("bot-123")
             print(f"Agent: {agent_data['agent']['agent_name']}")
-            print(f"Tools: {len(agent_data['tools'])}")
+            print(f"Steps: {len(agent_data['steps'])}")
 
         asyncio.run(main())
 
@@ -415,7 +427,7 @@ async def list_agents(
     Returns:
         Dictionary containing:
             - agents: List of agent summaries with agent_id, agent_name,
-                      policy_id, created_at, tool_count, evaluator_count
+                      policy_id, created_at, step_count, evaluator_count
             - pagination: Object with limit, total, next_cursor, has_more
 
     Raises:
@@ -456,7 +468,9 @@ async def list_controls(
     limit: int = 20,
     name: str | None = None,
     enabled: bool | None = None,
-    applies_to: Literal["llm_call", "tool_call"] | None = None,
+    step_type: str | None = None,
+    stage: Literal["pre", "post"] | None = None,
+    execution: Literal["server", "sdk"] | None = None,
     tag: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -469,7 +483,9 @@ async def list_controls(
         limit: Number of results per page (default 20, max 100)
         name: Optional filter by name (partial, case-insensitive)
         enabled: Optional filter by enabled status
-        applies_to: Optional filter by type ('llm_call' or 'tool_call')
+        step_type: Optional filter by step type (built-ins: 'tool', 'llm_inference')
+        stage: Optional filter by stage ('pre' or 'post')
+        execution: Optional filter by execution ('server' or 'sdk')
         tag: Optional filter by tag
 
     Returns:
@@ -492,7 +508,7 @@ async def list_controls(
             # Filter enabled LLM controls
             llm_controls = await agent_control.list_controls(
                 enabled=True,
-                applies_to="llm_call"
+                step_type="llm_inference"
             )
 
         asyncio.run(main())
@@ -506,7 +522,9 @@ async def list_controls(
             limit=limit,
             name=name,
             enabled=enabled,
-            applies_to=applies_to,
+            step_type=step_type,
+            stage=stage,
+            execution=execution,
             tag=tag,
         )
 
@@ -548,8 +566,8 @@ async def create_control(
             result = await agent_control.create_control(
                 name="ssn-blocker",
                 data={
-                    "applies_to": "llm_call",
-                    "check_stage": "post",
+                    "execution": "server",
+                    "scope": {"step_types": ["llm_inference"], "stages": ["post"]},
                     "selector": {"path": "output"},
                     "evaluator": {
                         "plugin": "regex",
@@ -887,8 +905,8 @@ __all__ = [
 
     # Models (if available)
     "Agent",
-    "LlmCall",
-    "ToolCall",
+    "Step",
+    "StepSchema",
     "EvaluationRequest",
     "EvaluationResult",
     "ControlDefinition",

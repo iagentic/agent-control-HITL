@@ -156,7 +156,7 @@ PASSED
 - `test_agent`: Registered test agent
 - `test_policy`: Created test policy
 - `test_control`: Created test control
-- `sample_tools`: Sample tool definitions
+- `sample_steps`: Sample step definitions
 
 ## Environment Variables
 
@@ -345,4 +345,3 @@ For issues or questions:
 1. Check server logs: `cd server && uv run uvicorn ... --log-level debug`
 2. Run tests with verbose output: `pytest -vv`
 3. Check test fixtures in `conftest.py`
-

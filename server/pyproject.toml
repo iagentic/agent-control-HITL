@@ -38,6 +38,9 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.8.0",
     "types-jsonschema>=4.23.0",
+    "agent-control-models",
+    "agent-control-engine",
+    "agent-control-plugins",
 ]
 
 [project.scripts]

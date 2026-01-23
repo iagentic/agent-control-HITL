@@ -60,7 +60,7 @@ Shared Pydantic models used by both server and SDK.
 models/src/agent_control_models/
 
 # Key files
-├── agent.py       # Agent, ToolCall, LlmCall models
+├── agent.py       # Agent, Step models
 ├── controls.py    # Control definitions, evaluators
 ├── evaluation.py  # EvaluationRequest/Response
 ├── policy.py      # Policy model

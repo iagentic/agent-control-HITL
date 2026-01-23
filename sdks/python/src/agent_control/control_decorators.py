@@ -5,7 +5,7 @@ This module provides a decorator that applies server-defined policies to agent f
 Policies contain multiple controls (regex, list, Luna2, etc.) that are managed server-side.
 
 Architecture:
-    SERVER defines: Policies -> Controls (check_stage, selector, evaluator, action)
+    SERVER defines: Policies -> Controls (stage, selector, evaluator, action)
     SDK decorator: just marks WHERE the policy applies
 
 Usage:
@@ -19,7 +19,7 @@ Usage:
         return await assistant.respond(message)
 
     # The server's policy contains controls that define:
-    # - check_stage: "pre" or "post"
+    # - stage: "pre" or "post"
     # - selector.path: "input" or "output"
     # - evaluator: regex, list, Luna2 plugin, etc.
     # - action: deny, warn, or log
@@ -73,8 +73,8 @@ def _get_server_url() -> str:
 
 async def _evaluate_async(
     agent_uuid: str,
-    payload: dict[str, Any],
-    check_stage: str,
+    step: dict[str, Any],
+    stage: str,
     server_url: str
 ) -> dict[str, Any]:
     """Call server evaluation endpoint asynchronously."""
@@ -84,8 +84,8 @@ async def _evaluate_async(
             "/api/v1/evaluation",
             json={
                 "agent_uuid": str(agent_uuid),
-                "payload": payload,
-                "check_stage": check_stage
+                "step": step,
+                "stage": stage
             }
         )
         response.raise_for_status()
@@ -95,15 +95,15 @@ async def _evaluate_async(
 
 def _evaluate_sync(
     agent_uuid: str,
-    payload: dict[str, Any],
-    check_stage: str,
+    step: dict[str, Any],
+    stage: str,
     server_url: str
 ) -> dict[str, Any]:
     """Call server evaluation endpoint synchronously."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     result = loop.run_until_complete(
-        _evaluate_async(agent_uuid, payload, check_stage, server_url)
+        _evaluate_async(agent_uuid, step, stage, server_url)
     )
     loop.close()
     return result
@@ -144,9 +144,9 @@ def _create_evaluation_payload(
     output: Any = None
 ) -> dict[str, Any]:
     """
-    Create evaluation payload for server, detecting if it's a tool call or LLM call.
+    Create evaluation payload for server, detecting if it's a tool step or LLM step.
 
-    Returns either a ToolCall or LlmCall payload structure.
+    Returns a Step payload structure.
     """
     sig = inspect.signature(func)
     bound = sig.bind(*args, **kwargs)
@@ -156,20 +156,26 @@ def _create_evaluation_payload(
     tool_name = getattr(func, "name", None) or getattr(func, "tool_name", None)
 
     if tool_name:
-        # This is a TOOL CALL - create ToolCall payload
+        # This is a tool step
         return {
-            "tool_name": tool_name,
-            "arguments": dict(bound.arguments),
-            "tool_call_id": None,
-            "tool_output": str(output) if output is not None else None
+            "type": "tool",
+            "name": tool_name,
+            "input": dict(bound.arguments),
+            "output": output if isinstance(output, (str, int, float, bool, dict, list)) else (
+                None if output is None else str(output)
+            ),
         }
-    else:
-        # This is an LLM CALL - create LlmCall payload
-        input_data = _extract_input_from_args(func, args, kwargs)
-        return {
-            "input": input_data,
-            "output": str(output) if output is not None else None
-        }
+
+    # This is an LLM inference step
+    input_data = _extract_input_from_args(func, args, kwargs)
+    return {
+        "type": "llm_inference",
+        "name": func.__name__,
+        "input": input_data,
+        "output": output if isinstance(output, (str, int, float, bool, dict, list)) else (
+            None if output is None else str(output)
+        ),
+    }
 
 
 def _handle_evaluation_result(result: dict[str, Any]) -> None:
@@ -232,7 +238,7 @@ def control(policy: str | None = None) -> Callable[[F], F]:
     """
     Decorator to apply server-defined policy at this code location.
 
-    The policy's controls (check_stage, selector, evaluator, action) are defined
+    The policy's controls (stage, selector, evaluator, action) are defined
     on the SERVER. This decorator just marks WHERE to apply the policy.
 
     Args:
@@ -247,10 +253,10 @@ def control(policy: str | None = None) -> Callable[[F], F]:
         ControlViolationError: If any control triggers with "deny" action
 
     How it works:
-        1. Before function execution: Calls server with check_stage="pre"
+        1. Before function execution: Calls server with stage="pre"
            - Server evaluates all "pre" controls in the agent's policy
         2. Function executes
-        3. After function execution: Calls server with check_stage="post"
+        3. After function execution: Calls server with stage="post"
            - Server evaluates all "post" controls in the agent's policy
 
     Example:
@@ -299,10 +305,10 @@ def control(policy: str | None = None) -> Callable[[F], F]:
             server_url = _get_server_url()
             agent_uuid = str(agent.agent_id)
 
-            # PRE-EXECUTION: Check controls with check_stage="pre"
+            # PRE-EXECUTION: Check controls with stage="pre"
             try:
-                payload = _create_evaluation_payload(func, args, kwargs, output=None)
-                result = await _evaluate_async(agent_uuid, payload, "pre", server_url)
+                step = _create_evaluation_payload(func, args, kwargs, output=None)
+                result = await _evaluate_async(agent_uuid, step, "pre", server_url)
                 _handle_evaluation_result(result)
             except ControlViolationError:
                 raise
@@ -316,10 +322,10 @@ def control(policy: str | None = None) -> Callable[[F], F]:
             # Execute the function
             output = await func(*args, **kwargs)
 
-            # POST-EXECUTION: Check controls with check_stage="post"
+            # POST-EXECUTION: Check controls with stage="post"
             try:
-                payload = _create_evaluation_payload(func, args, kwargs, output=output)
-                result = await _evaluate_async(agent_uuid, payload, "post", server_url)
+                step = _create_evaluation_payload(func, args, kwargs, output=output)
+                result = await _evaluate_async(agent_uuid, step, "post", server_url)
                 _handle_evaluation_result(result)
             except ControlViolationError:
                 raise
@@ -351,8 +357,8 @@ def control(policy: str | None = None) -> Callable[[F], F]:
 
             # PRE-EXECUTION
             try:
-                payload = _create_evaluation_payload(func, args, kwargs, output=None)
-                result = _evaluate_sync(agent_uuid, payload, "pre", server_url)
+                step = _create_evaluation_payload(func, args, kwargs, output=None)
+                result = _evaluate_sync(agent_uuid, step, "pre", server_url)
                 _handle_evaluation_result(result)
             except ControlViolationError:
                 raise
@@ -368,8 +374,8 @@ def control(policy: str | None = None) -> Callable[[F], F]:
 
             # POST-EXECUTION
             try:
-                payload = _create_evaluation_payload(func, args, kwargs, output=output)
-                result = _evaluate_sync(agent_uuid, payload, "post", server_url)
+                step = _create_evaluation_payload(func, args, kwargs, output=output)
+                result = _evaluate_sync(agent_uuid, step, "post", server_url)
                 _handle_evaluation_result(result)
             except ControlViolationError:
                 raise
