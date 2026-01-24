@@ -82,7 +82,7 @@ class TestControl:
     async def test_passes_when_safe(self, mock_agent, mock_safe_response):
         """Test that safe evaluation allows function execution."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", return_value=mock_safe_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_safe_response):
 
             @control()
             async def chat(message: str) -> str:
@@ -95,7 +95,7 @@ class TestControl:
     async def test_blocks_when_unsafe(self, mock_agent, mock_unsafe_response):
         """Test that unsafe evaluation blocks with ControlViolationError."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", return_value=mock_unsafe_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_unsafe_response):
 
             @control()
             async def chat(message: str) -> str:
@@ -111,7 +111,7 @@ class TestControl:
     async def test_warns_without_blocking(self, mock_agent, mock_warn_response, caplog):
         """Test that warn action logs but allows execution."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", return_value=mock_warn_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_warn_response):
 
             @control()
             async def chat(message: str) -> str:
@@ -144,7 +144,7 @@ class TestPolicyHandling:
     async def test_control_triggers_raise_exception(self, mock_agent, mock_unsafe_response):
         """Test that matching control triggers raise ControlViolationError."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", return_value=mock_unsafe_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_unsafe_response):
 
             @control()
             async def chat(message: str) -> str:
@@ -159,7 +159,7 @@ class TestPolicyHandling:
     async def test_policy_evaluates_all_controls(self, mock_agent, mock_safe_response):
         """Test that policy evaluates all controls."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", return_value=mock_safe_response) as mock_eval:
+             patch("agent_control.control_decorators._evaluate", return_value=mock_safe_response) as mock_eval:
 
             @control()  # Apply agent's assigned policy
             async def chat(message: str) -> str:
@@ -183,19 +183,19 @@ class TestPrePostExecution:
         """Test that both pre and post checks are called."""
         call_stages = []
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             call_stages.append(stage)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def chat(message: str) -> str:
                 return f"Response to: {message}"
 
             await chat("Hello!")
-            
+
             assert "pre" in call_stages
             assert "post" in call_stages
 
@@ -204,13 +204,13 @@ class TestPrePostExecution:
         """Test that pre-check block prevents function execution."""
         function_executed = False
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             if stage == "pre":
                 return mock_unsafe_response
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def chat(message: str) -> str:
@@ -228,20 +228,20 @@ class TestPrePostExecution:
         """Test that post-check receives the function output."""
         captured_step = {}
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             if stage == "post":
                 captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def chat(message: str) -> str:
                 return "Generated response"
 
             await chat("Hello!")
-            
+
             assert "output" in captured_step
             assert "Generated response" in captured_step["output"]
 
@@ -258,20 +258,20 @@ class TestInputExtraction:
         """Test extraction of 'input' parameter."""
         captured_step = {}
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             if stage == "pre":
                 captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def process(input: str) -> str:
                 return input.upper()
 
             await process("hello world")
-            
+
             assert captured_step["input"] == "hello world"
 
     @pytest.mark.asyncio
@@ -279,20 +279,20 @@ class TestInputExtraction:
         """Test extraction of 'message' parameter."""
         captured_step = {}
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             if stage == "pre":
                 captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def chat(message: str, context: dict) -> str:
                 return f"Response: {message}"
 
             await chat("Hello!", {"user": "test"})
-            
+
             assert captured_step["input"] == "Hello!"
 
     @pytest.mark.asyncio
@@ -300,20 +300,20 @@ class TestInputExtraction:
         """Test extraction of 'query' parameter."""
         captured_step = {}
 
-        async def mock_evaluate(agent_uuid, step, stage, server_url):
+        async def mock_evaluate(agent_uuid, step, stage, server_url, trace_id=None, span_id=None):
             if stage == "pre":
                 captured_step.update(step)
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control()
             async def search(query: str, limit: int = 10) -> list:
                 return [query]
 
             await search("test query")
-            
+
             assert captured_step["input"] == "test query"
 
 
@@ -327,7 +327,7 @@ class TestSyncFunctions:
     def test_sync_function_passes(self, mock_agent, mock_safe_response):
         """Test that sync functions work correctly."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_sync", return_value=mock_safe_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_safe_response):
 
             @control()
             def process(input: str) -> str:
@@ -339,7 +339,7 @@ class TestSyncFunctions:
     def test_sync_function_blocks(self, mock_agent, mock_unsafe_response):
         """Test that sync functions can be blocked."""
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_sync", return_value=mock_unsafe_response):
+             patch("agent_control.control_decorators._evaluate", return_value=mock_unsafe_response):
 
             @control()
             def process(input: str) -> str:
@@ -367,7 +367,7 @@ class TestStackedDecorators:
             return mock_safe_response
 
         with patch("agent_control.control_decorators._get_current_agent", return_value=mock_agent), \
-             patch("agent_control.control_decorators._evaluate_async", side_effect=mock_evaluate):
+             patch("agent_control.control_decorators._evaluate", side_effect=mock_evaluate):
 
             @control(policy="policy-1")
             @control(policy="policy-2")

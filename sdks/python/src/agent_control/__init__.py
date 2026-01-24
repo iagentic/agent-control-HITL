@@ -48,6 +48,26 @@ from .client import AgentControlClient
 # Import control decorator
 from .control_decorators import ControlViolationError, control
 from .evaluation import check_evaluation_with_local
+from .observability import (
+    LogConfig,
+    add_event,
+    configure_logging,
+    get_event_batcher,
+    get_log_config,
+    init_observability,
+    is_observability_enabled,
+    log_control_evaluation,
+    shutdown_observability,
+)
+
+# Import tracing and observability
+from .tracing import (
+    get_current_span_id,
+    get_current_trace_id,
+    get_trace_and_span_ids,
+    is_otel_available,
+    with_trace,
+)
 
 # Import models if available
 try:
@@ -171,6 +191,8 @@ def init(
     api_key: str | None = None,
     controls_file: str | None = None,
     steps: list[dict[str, Any]] | None = None,
+    observability_enabled: bool | None = None,
+    log_config: dict[str, Any] | None = None,
     **kwargs: object
 ) -> Agent:
     """
@@ -197,6 +219,9 @@ def init(
         controls_file: Optional explicit path to controls.yaml (auto-discovered if not provided)
         steps: Optional list of step schemas for registration:
                [{"type": "tool", "name": "search", "input_schema": {...}, "output_schema": {...}}]
+        observability_enabled: Optional bool to enable/disable observability (defaults to env var)
+        log_config: Optional logging configuration dict:
+               {"enabled": True, "span_start": True, "span_end": True, "control_eval": True}
         **kwargs: Additional metadata to store with the agent
 
     Returns:
@@ -233,11 +258,15 @@ def init(
     global _current_agent, _control_engine, _client, _server_controls
 
     if not agent_id:
-         raise ValueError(
+        raise ValueError(
             "The 'agent_id' argument is required for initialization.\n"
             "Please provide a unique string identifier for your agent, e.g.:\n"
             '    agent_control.init(agent_name="my-agent", agent_id="my-agent-v1")'
         )
+
+    # Configure logging if provided (do this early before any logging happens)
+    if log_config:
+        configure_logging(log_config)
 
     # Create agent instance with metadata
     # Convert agent_id to UUID (accept UUID string or generate from regular string)
@@ -347,6 +376,15 @@ def init(
         print(f"✓ Loaded {len(server_controls)} control(s) from server")
     else:
         print("ℹ️  No controls returned from server (use local controls.yaml or @control decorator)")
+
+    # Initialize observability if enabled
+    batcher = init_observability(
+        server_url=_server_url,
+        api_key=api_key,
+        enabled=observability_enabled,
+    )
+    if batcher:
+        print("✓ Observability enabled")
 
     return _current_agent
 
@@ -895,6 +933,7 @@ __all__ = [
     "remove_control_from_policy",
     "list_policy_controls",
 
+
     # Tool inference utilities
     "tool",
     "extract_tools_from_functions",
@@ -902,6 +941,24 @@ __all__ = [
 
     # Local evaluation
     "check_evaluation_with_local",
+
+    # Tracing
+    "get_trace_and_span_ids",
+    "get_current_trace_id",
+    "get_current_span_id",
+    "with_trace",
+    "is_otel_available",
+
+    # Observability
+    "init_observability",
+    "add_event",
+    "shutdown_observability",
+    "is_observability_enabled",
+    "get_event_batcher",
+    "configure_logging",
+    "get_log_config",
+    "log_control_evaluation",
+    "LogConfig",
 
     # Models (if available)
     "Agent",

@@ -42,6 +42,16 @@ from .evaluation import (
     EvaluationResult,
 )
 from .health import HealthResponse
+from .observability import (
+    BatchEventsRequest,
+    BatchEventsResponse,
+    ControlExecutionEvent,
+    ControlStats,
+    EventQueryRequest,
+    EventQueryResponse,
+    StatsRequest,
+    StatsResponse,
+)
 from .plugin import (
     PluginEvaluator,
     PluginMetadata,
@@ -125,4 +135,13 @@ __all__ = [
     "PatchControlRequest",
     "PatchControlResponse",
     "StepKey",
+    # Observability models
+    "ControlExecutionEvent",
+    "BatchEventsRequest",
+    "BatchEventsResponse",
+    "EventQueryRequest",
+    "EventQueryResponse",
+    "ControlStats",
+    "StatsRequest",
+    "StatsResponse",
 ]

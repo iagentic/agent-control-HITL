@@ -13,10 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette_exporter import PrometheusMiddleware, handle_metrics
 
 from .auth import require_api_key
-from .config import settings
+from .config import observability_settings, settings
+from .db import AsyncSessionLocal
 from .endpoints.agents import router as agent_router
 from .endpoints.controls import router as control_router
 from .endpoints.evaluation import router as evaluation_router
+from .endpoints.observability import router as observability_router
 from .endpoints.plugins import router as plugin_router
 from .endpoints.policies import router as policy_router
 from .errors import (
@@ -27,6 +29,8 @@ from .errors import (
     validation_exception_handler,
 )
 from .logging_utils import configure_logging
+from .observability.ingest import DirectEventIngestor
+from .observability.store import PostgresEventStore
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +68,6 @@ def add_prometheus_metrics(app: FastAPI, metrics_prefix: str) -> None:
     )
     app.add_route(METRICS_PATH, handle_metrics)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Lifespan context manager for FastAPI app startup and shutdown."""
@@ -77,7 +80,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     available = list(list_plugins().keys())
     logger.info(f"Plugin discovery complete. Available plugins: {available}")
 
+    # Initialize observability components (stored on app.state)
+    if observability_settings.enabled:
+        logger.info("Initializing observability components...")
+
+        # 1. Create event store
+        store = PostgresEventStore(AsyncSessionLocal)
+        app.state.event_store = store
+        logger.info("PostgresEventStore initialized")
+
+        # 2. Create event ingestor
+        ingestor = DirectEventIngestor(
+            store=store,
+            log_to_stdout=observability_settings.stdout,
+        )
+        app.state.event_ingestor = ingestor
+        logger.info(
+            f"DirectEventIngestor initialized (stdout={observability_settings.stdout})"
+        )
+
+        logger.info("Observability initialization complete")
+
     yield
+
+    # Shutdown: Clean up observability
+    if observability_settings.enabled and hasattr(app.state, "event_store"):
+        logger.info("Shutting down observability components...")
+        await app.state.event_store.close()
+        logger.info("EventStore closed")
 
 
 app = FastAPI(
@@ -170,6 +200,12 @@ app.include_router(
     plugin_router,
     prefix=api_v1_prefix,
     dependencies=[Depends(require_api_key)],
+)
+
+# Observability routes (already has auth dependency in router)
+app.include_router(
+    observability_router,
+    prefix=api_v1_prefix,
 )
 
 # Health check at root level (common convention)

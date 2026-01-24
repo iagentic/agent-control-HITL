@@ -330,9 +330,15 @@ async def init_agent(
                 ],
             )
 
-    # Look up by name only; name is unique
+    # Look up by UUID first (primary key), then by name
+    result = await db.execute(select(Agent).where(Agent.agent_uuid == request.agent.agent_id))
+    existing_by_uuid: Agent | None = result.scalars().first()
+
     result = await db.execute(select(Agent).where(Agent.name == request.agent.agent_name))
-    existing: Agent | None = result.scalars().first()
+    existing_by_name: Agent | None = result.scalars().first()
+
+    # Use existing_by_uuid if found, otherwise existing_by_name
+    existing = existing_by_uuid or existing_by_name
 
     created = False
 

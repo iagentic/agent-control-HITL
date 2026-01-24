@@ -236,6 +236,7 @@ class ControlEngine:
 
         # Collect results and errors
         errors: list[ControlMatch] = []
+        non_matches: list[ControlMatch] = []
         successful_count = 0
         evaluated_count = 0  # Controls that ran (not cancelled)
         deny_errored = False
@@ -280,6 +281,16 @@ class ControlEngine:
                 if eval_task.item.control.action.decision == "deny":
                     is_safe = False
                     deny_matched = True
+            else:
+                # Collect non-matches (evaluated but did not match)
+                non_matches.append(
+                    ControlMatch(
+                        control_id=eval_task.item.id,
+                        control_name=eval_task.item.name,
+                        action=eval_task.item.control.action.decision,
+                        result=eval_task.result,
+                    )
+                )
 
         # Fail closed if a deny control errored (couldn't verify safety)
         if deny_errored:
@@ -307,4 +318,5 @@ class ControlEngine:
             confidence=confidence,
             matches=matches if matches else None,
             errors=errors if errors else None,
+            non_matches=non_matches if non_matches else None,
         )
