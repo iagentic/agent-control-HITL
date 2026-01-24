@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v2.0.0 (2026-01-24)
+
+### Features
+
+- **server**: Add observability system for control execution tracking
+  ([#44](https://github.com/rungalileo/agent-control/pull/44),
+  [`fd0bddc`](https://github.com/rungalileo/agent-control/commit/fd0bddce3a9aa53472edb13e1c8fee6305571e98))
+
+### Refactoring
+
+- **models**: Simplify step model and schema
+  ([#70](https://github.com/rungalileo/agent-control/pull/70),
+  [`4c1d637`](https://github.com/rungalileo/agent-control/commit/4c1d6378a4a05edc44f02fa78c1698b9203da81b))
+
+
 ## v1.1.4 (2026-01-23)
 
 ### Chores
