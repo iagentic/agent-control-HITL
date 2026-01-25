@@ -10,7 +10,7 @@ This example demonstrates integrating Agent Control with a LangChain SQL agent t
 
 ```bash
 # From the repo root
-cd /Users/nachiketparanjape/Documents/Galileo/Hub/agent-protect
+cd /Users/nachiketparanjape/Documents/Galileo/Hub/agent-control
 
 # Kill any old servers
 pkill -f "uvicorn agent_control_server"

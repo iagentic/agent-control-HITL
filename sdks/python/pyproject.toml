@@ -27,9 +27,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/agent-protect"
-Documentation = "https://github.com/yourusername/agent-protect#readme"
-Repository = "https://github.com/yourusername/agent-protect"
+Homepage = "https://github.com/yourusername/agent-control"
+Documentation = "https://github.com/yourusername/agent-control#readme"
+Repository = "https://github.com/yourusername/agent-control"
 
 [project.optional-dependencies]
 # Optional: Luna-2 plugin requires additional dependencies

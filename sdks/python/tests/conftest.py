@@ -1,8 +1,8 @@
 """
-Pytest configuration and fixtures for Agent Protect SDK integration tests.
+Pytest configuration and fixtures for Agent Control SDK integration tests.
 
 These fixtures provide shared setup and teardown for integration tests
-that run against a live Agent Protect server.
+that run against a live Agent Control server.
 """
 
 import os

@@ -7,7 +7,7 @@ Thanks for contributing! This document covers conventions, setup, and workflows 
 Agent Control is a **uv workspace monorepo** with these components:
 
 ```
-agent-protect/
+agent-control/
 ├── models/          # Shared Pydantic models (agent-control-models)
 ├── server/          # FastAPI server (agent-control-server)
 ├── sdks/python/     # Python SDK (agent-control)
@@ -38,7 +38,7 @@ Server ──► Engine ──► Models ◄── Plugins
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd agent-protect
+cd agent-control
 
 # Install all dependencies (creates single .venv for workspace)
 make sync

@@ -1,8 +1,8 @@
-# Agent Protect SDK Architecture
+# Agent Control SDK Architecture
 
 ## Overview
 
-The Agent Protect SDK has been refactored to follow a modular architecture that mirrors the server's endpoint structure. This makes the codebase more maintainable, easier to navigate, and follows the single responsibility principle.
+The Agent Control SDK has been refactored to follow a modular architecture that mirrors the server's endpoint structure. This makes the codebase more maintainable, easier to navigate, and follows the single responsibility principle.
 
 ## Directory Structure
 
@@ -153,7 +153,7 @@ async with agent_protect.AgentProtectClient() as client:
 **Purpose**: Public API, convenience functions, and initialization.
 
 **Key Functions**:
-- `init(agent_name, agent_id, ...)` - Initialize Agent Protect
+- `init(agent_name, agent_id, ...)` - Initialize Agent Control
 - `get_agent(agent_id, server_url)` - Convenience function for fetching agents
 - `current_agent()` - Get the currently initialized agent
 - `protect(step_name, **data_sources)` - Decorator for rule enforcement
