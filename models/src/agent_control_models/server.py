@@ -293,3 +293,77 @@ class PatchControlResponse(BaseModel):
     enabled: bool | None = Field(
         None, description="Current enabled status (if control has data configured)"
     )
+
+
+# =============================================================================
+# Evaluator Config Store Models
+# =============================================================================
+
+
+class EvaluatorConfigItem(BaseModel):
+    """Evaluator config template stored in the server."""
+
+    id: int = Field(..., description="Evaluator config ID")
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+        description="Unique evaluator config name (letters, numbers, hyphens, underscores)",
+    )
+    description: str | None = Field(
+        None, max_length=1000, description="Optional description"
+    )
+    plugin: str = Field(..., min_length=1, description="Plugin name (built-in or custom)")
+    config: dict[str, Any] = Field(..., description="Plugin-specific configuration")
+    created_at: str | None = Field(None, description="ISO 8601 created timestamp")
+    updated_at: str | None = Field(None, description="ISO 8601 updated timestamp")
+
+
+class CreateEvaluatorConfigRequest(BaseModel):
+    """Request to create an evaluator config template."""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+        description="Unique evaluator config name (letters, numbers, hyphens, underscores)",
+    )
+    description: str | None = Field(
+        None, max_length=1000, description="Optional description"
+    )
+    plugin: str = Field(..., min_length=1, description="Plugin name (built-in or custom)")
+    config: dict[str, Any] = Field(..., description="Plugin-specific configuration")
+
+
+class UpdateEvaluatorConfigRequest(BaseModel):
+    """Request to replace an evaluator config template."""
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$",
+        description="Unique evaluator config name (letters, numbers, hyphens, underscores)",
+    )
+    description: str | None = Field(
+        None, max_length=1000, description="Optional description"
+    )
+    plugin: str = Field(..., min_length=1, description="Plugin name (built-in or custom)")
+    config: dict[str, Any] = Field(..., description="Plugin-specific configuration")
+
+
+class ListEvaluatorConfigsResponse(BaseModel):
+    """Response for listing evaluator configs."""
+
+    evaluator_configs: list[EvaluatorConfigItem] = Field(
+        ..., description="List of evaluator configs"
+    )
+    pagination: PaginationInfo = Field(..., description="Pagination metadata")
+
+
+class DeleteEvaluatorConfigResponse(BaseModel):
+    """Response for deleting an evaluator config."""
+
+    success: bool = Field(..., description="Whether the evaluator config was deleted")

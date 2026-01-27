@@ -61,6 +61,7 @@ class ErrorCode(str, Enum):
     POLICY_NOT_FOUND = "POLICY_NOT_FOUND"
     CONTROL_NOT_FOUND = "CONTROL_NOT_FOUND"
     EVALUATOR_NOT_FOUND = "EVALUATOR_NOT_FOUND"
+    EVALUATOR_CONFIG_NOT_FOUND = "EVALUATOR_CONFIG_NOT_FOUND"
 
     # Conflict Errors (3xx pattern)
     AGENT_NAME_CONFLICT = "AGENT_NAME_CONFLICT"
@@ -68,6 +69,7 @@ class ErrorCode(str, Enum):
     POLICY_NAME_CONFLICT = "POLICY_NAME_CONFLICT"
     CONTROL_NAME_CONFLICT = "CONTROL_NAME_CONFLICT"
     EVALUATOR_NAME_CONFLICT = "EVALUATOR_NAME_CONFLICT"
+    EVALUATOR_CONFIG_NAME_CONFLICT = "EVALUATOR_CONFIG_NAME_CONFLICT"
     CONTROL_IN_USE = "CONTROL_IN_USE"
     EVALUATOR_IN_USE = "EVALUATOR_IN_USE"
     SCHEMA_INCOMPATIBLE = "SCHEMA_INCOMPATIBLE"
@@ -351,12 +353,14 @@ ERROR_TITLES: dict[ErrorCode, str] = {
     ErrorCode.POLICY_NOT_FOUND: "Policy Not Found",
     ErrorCode.CONTROL_NOT_FOUND: "Control Not Found",
     ErrorCode.EVALUATOR_NOT_FOUND: "Evaluator Not Found",
+    ErrorCode.EVALUATOR_CONFIG_NOT_FOUND: "Evaluator Config Not Found",
     # Conflict errors
     ErrorCode.AGENT_NAME_CONFLICT: "Agent Name Already Exists",
     ErrorCode.AGENT_UUID_CONFLICT: "Agent UUID Conflict",
     ErrorCode.POLICY_NAME_CONFLICT: "Policy Name Already Exists",
     ErrorCode.CONTROL_NAME_CONFLICT: "Control Name Already Exists",
     ErrorCode.EVALUATOR_NAME_CONFLICT: "Evaluator Name Conflict",
+    ErrorCode.EVALUATOR_CONFIG_NAME_CONFLICT: "Evaluator Config Name Conflict",
     ErrorCode.CONTROL_IN_USE: "Control In Use",
     ErrorCode.EVALUATOR_IN_USE: "Evaluator In Use",
     ErrorCode.SCHEMA_INCOMPATIBLE: "Schema Incompatible",
@@ -376,4 +380,3 @@ ERROR_TITLES: dict[ErrorCode, str] = {
 def get_error_title(error_code: ErrorCode) -> str:
     """Get the standard title for an error code."""
     return ERROR_TITLES.get(error_code, "Error")
-

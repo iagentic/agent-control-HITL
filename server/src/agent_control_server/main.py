@@ -18,6 +18,7 @@ from .db import AsyncSessionLocal
 from .endpoints.agents import router as agent_router
 from .endpoints.controls import router as control_router
 from .endpoints.evaluation import router as evaluation_router
+from .endpoints.evaluator_configs import router as evaluator_config_router
 from .endpoints.observability import router as observability_router
 from .endpoints.plugins import router as plugin_router
 from .endpoints.policies import router as policy_router
@@ -187,6 +188,11 @@ app.include_router(
 )
 app.include_router(
     control_router,
+    prefix=api_v1_prefix,
+    dependencies=[Depends(require_api_key)],
+)
+app.include_router(
+    evaluator_config_router,
     prefix=api_v1_prefix,
     dependencies=[Depends(require_api_key)],
 )

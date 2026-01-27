@@ -42,6 +42,7 @@ Forwarded targets:
 - Keep changes scoped: prefer the smallest diff that fixes the issue and matches existing patterns.
 - Shared contracts live in `models/`: if you change request/response or shared types, expect follow-up changes in `server/` and `sdks/python/`.
 - Imports: prefer top-level imports over local/inline imports. Local imports are acceptable only for: (1) breaking circular dependencies, (2) optional dependencies with try/except, (3) TYPE_CHECKING blocks.
+- SQLAlchemy: use the 2.0-style APIs (e.g., `select()` + `AsyncSession.execute()`), avoid legacy `Session.query()`.
 
 ## Runtime performance
 
