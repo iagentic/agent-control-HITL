@@ -100,4 +100,14 @@ export const api = {
         params: { path: { policy_id: policyId, control_id: controlId } },
       }),
   },
+  observability: {
+    getStats: (params: {
+      agent_uuid: string;
+      time_range?: "1m" | "5m" | "15m" | "1h" | "24h" | "7d";
+      control_id?: number | null;
+    }) =>
+      apiClient.GET("/api/v1/observability/stats", {
+        params: { query: params },
+      }),
+  },
 };
