@@ -56,7 +56,7 @@ async def list_controls_for_agent(agent_id: UUID, db: AsyncSession) -> list[APIC
         except ValidationError as e:
             error_items = []
             for err in e.errors():
-                loc = err.get("loc", [])
+                loc: Sequence[str | int] = err.get("loc", [])
                 field_suffix = ".".join(str(part) for part in loc) if loc else ""
                 error_items.append(
                     ValidationErrorItem(

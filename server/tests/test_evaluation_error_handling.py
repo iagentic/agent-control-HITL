@@ -149,3 +149,36 @@ def test_evaluation_errors_field_populated_on_evaluator_failure(
 
     # No matches because evaluation failed
     assert data["matches"] is None or len(data["matches"]) == 0
+
+
+def test_evaluation_engine_value_error_returns_422(client: TestClient, monkeypatch) -> None:
+    """Test that evaluation returns 422 when the engine raises a ValueError."""
+    # Given: a valid agent with a control assigned
+    control_data = {
+        "description": "Test control",
+        "enabled": True,
+        "execution": "server",
+        "scope": {"step_types": ["llm"], "stages": ["pre"]},
+        "selector": {"path": "input"},
+        "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+        "action": {"decision": "deny"},
+    }
+    agent_uuid, _ = create_and_assign_policy(client, control_data)
+
+    # And: the engine raises a ValueError during processing
+    import agent_control_engine.core as core_module
+
+    async def raise_value_error(*_args, **_kwargs):
+        raise ValueError("bad config")
+
+    monkeypatch.setattr(core_module.ControlEngine, "process", raise_value_error)
+
+    # When: sending an evaluation request
+    payload = Step(type="llm", name="test-step", input="test content", output=None)
+    req = EvaluationRequest(agent_uuid=agent_uuid, step=payload, stage="pre")
+    resp = client.post("/api/v1/evaluation", json=req.model_dump(mode="json"))
+
+    # Then: a validation error is returned
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error_code"] == "EVALUATION_FAILED"

@@ -88,6 +88,36 @@ def test_policy_remove_control(client: TestClient) -> None:
     assert control_id not in l.json()["control_ids"]
 
 
+def test_policy_remove_control_idempotent_when_not_associated(client: TestClient) -> None:
+    # Given: a policy and a control that are not associated
+    policy_id = _create_policy(client)
+    control_id = _create_control(client)
+
+    # When: removing the association anyway
+    resp = client.delete(f"/api/v1/policies/{policy_id}/controls/{control_id}")
+
+    # Then: success is returned (idempotent)
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    # And: list remains empty
+    list_resp = client.get(f"/api/v1/policies/{policy_id}/controls")
+    assert list_resp.status_code == 200
+    assert list_resp.json()["control_ids"] == []
+
+
+def test_list_policy_controls_empty_for_new_policy(client: TestClient) -> None:
+    # Given: a newly created policy with no controls
+    policy_id = _create_policy(client)
+
+    # When: listing policy controls
+    resp = client.get(f"/api/v1/policies/{policy_id}/controls")
+
+    # Then: empty list is returned
+    assert resp.status_code == 200
+    assert resp.json()["control_ids"] == []
+
+
 def test_policy_assoc_404s(client: TestClient) -> None:
     # Given: IDs
     policy_id = _create_policy(client)

@@ -168,6 +168,85 @@ def test_update_evaluator_config_name_conflict_409(client: TestClient) -> None:
     assert data["error_code"] == "EVALUATOR_CONFIG_NAME_CONFLICT"
 
 
+def test_update_evaluator_config_invalid_config_422(client: TestClient) -> None:
+    # Given: an existing evaluator config
+    created = _create_config(client, name=f"config-{uuid.uuid4().hex}")
+
+    # When: updating with invalid config for regex evaluator
+    payload = _create_config_payload(
+        name=created["name"],
+        evaluator="regex",
+        config={"flags": ["IGNORECASE"]},
+    )
+    resp = client.put(f"/api/v1/evaluator-configs/{created['id']}", json=payload)
+
+    # Then: validation error is returned
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error_code"] == "INVALID_CONFIG"
+
+
+def test_update_evaluator_config_agent_scoped_rejected(client: TestClient) -> None:
+    # Given: an existing evaluator config
+    created = _create_config(client, name=f"config-{uuid.uuid4().hex}")
+
+    # When: updating with agent-scoped evaluator
+    payload = _create_config_payload(
+        name=created["name"],
+        evaluator="agent:custom",
+        config={},
+    )
+    resp = client.put(f"/api/v1/evaluator-configs/{created['id']}", json=payload)
+
+    # Then: validation error is returned
+    assert resp.status_code == 422
+    data = resp.json()
+    assert data["error_code"] == "VALIDATION_ERROR"
+
+
+def test_update_evaluator_config_unknown_evaluator_allowed(client: TestClient) -> None:
+    # Given: an existing evaluator config
+    created = _create_config(client, name=f"config-{uuid.uuid4().hex}")
+
+    # When: updating to an unknown evaluator
+    payload = _create_config_payload(
+        name=created["name"],
+        evaluator="unknown-evaluator",
+        config={},
+    )
+    resp = client.put(f"/api/v1/evaluator-configs/{created['id']}", json=payload)
+
+    # Then: update succeeds and evaluator name is persisted
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["evaluator"] == "unknown-evaluator"
+
+
+def test_list_evaluator_configs_cursor_pagination(client: TestClient) -> None:
+    # Given: multiple evaluator configs
+    base = f"config-{uuid.uuid4().hex}"
+    _create_config(client, name=f"{base}-a")
+    _create_config(client, name=f"{base}-b")
+    _create_config(client, name=f"{base}-c")
+
+    # When: requesting first page with limit=2
+    resp = client.get("/api/v1/evaluator-configs", params={"limit": 2})
+    assert resp.status_code == 200
+    page1 = resp.json()
+    assert page1["pagination"]["has_more"] is True
+    assert page1["pagination"]["next_cursor"] is not None
+
+    # When: requesting next page using cursor
+    cursor = page1["pagination"]["next_cursor"]
+    resp2 = client.get("/api/v1/evaluator-configs", params={"limit": 2, "cursor": cursor})
+    assert resp2.status_code == 200
+    page2 = resp2.json()
+
+    # Then: remaining items are returned and has_more is False
+    assert page2["pagination"]["has_more"] is False
+    assert len(page2["evaluator_configs"]) >= 1
+
+
 def test_get_evaluator_config_not_found(client: TestClient) -> None:
     # Given: A non-existent evaluator config ID
     missing_id = 999999
@@ -204,6 +283,58 @@ def test_list_evaluator_configs_with_filters_and_pagination(
     assert data["pagination"]["has_more"] is True
     assert len(data["evaluator_configs"]) == 2
     assert all(cfg["evaluator"] == "regex" for cfg in data["evaluator_configs"])
+    assert data["pagination"]["total"] == 3
+
+
+def test_list_evaluator_configs_filter_by_evaluator_only(client: TestClient) -> None:
+    # Given: configs across different evaluators
+    _create_config(client, name=f"config-{uuid.uuid4().hex}", evaluator="regex")
+    _create_config(client, name=f"config-{uuid.uuid4().hex}", evaluator="regex")
+    _create_config(client, name=f"config-{uuid.uuid4().hex}", evaluator="list")
+
+    # When: filtering by evaluator only
+    resp = client.get("/api/v1/evaluator-configs", params={"evaluator": "regex"})
+
+    # Then: only regex configs are returned
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pagination"]["total"] == 2
+    assert all(cfg["evaluator"] == "regex" for cfg in data["evaluator_configs"])
+
+
+def test_list_evaluator_configs_filter_by_name_only(client: TestClient) -> None:
+    # Given: configs with a shared name prefix
+    base = f"config-{uuid.uuid4().hex}"
+    _create_config(client, name=f"{base}-a", evaluator="regex")
+    _create_config(client, name=f"{base}-b", evaluator="list")
+    _create_config(client, name=f"other-{uuid.uuid4().hex}", evaluator="regex")
+
+    # When: filtering by name prefix only
+    resp = client.get("/api/v1/evaluator-configs", params={"name": base})
+
+    # Then: only matching names are returned
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["pagination"]["total"] == 2
+    assert all(base in cfg["name"] for cfg in data["evaluator_configs"])
+
+
+def test_update_evaluator_config_not_found(client: TestClient) -> None:
+    # Given: a non-existent evaluator config ID
+    missing_id = 999999
+
+    # When: Updating the evaluator config
+    payload = _create_config_payload(
+        name=f"config-{uuid.uuid4().hex}",
+        evaluator="regex",
+        config={"pattern": r"\\btest\\b"},
+    )
+    resp = client.put(f"/api/v1/evaluator-configs/{missing_id}", json=payload)
+
+    # Then: Not found error is returned
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data["error_code"] == "EVALUATOR_CONFIG_NOT_FOUND"
 
 
 def test_delete_evaluator_config_success(client: TestClient) -> None:
