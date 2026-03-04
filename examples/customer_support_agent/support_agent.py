@@ -29,7 +29,7 @@ from agent_control.tracing import with_trace
 # The agent registers with the server and loads associated controls.
 
 agent_control.init(
-    agent_name="646d5dea-c2e6-4453-b446-7035482b38e4",
+    agent_name="customer-support-agent",
     agent_description="AI-powered customer support assistant that helps with inquiries, "
                       "searches knowledge bases, and creates support tickets.",
     agent_version="1.0.0",

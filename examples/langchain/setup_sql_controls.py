@@ -18,7 +18,7 @@ import requests
 
 from agent_control import Agent, AgentControlClient, agents, controls
 
-AGENT_ID = "edf66504-0db5-4ee8-9e09-3ef37bbb8faa"
+AGENT_NAME = "langchain-sql-example"
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
 
@@ -51,16 +51,16 @@ async def setup_sql_controls():
     """Create SQL control and associate it directly with the agent."""
     async with AgentControlClient(base_url=SERVER_URL) as client:
         # 1. Register Agent
-        agent_name = AGENT_ID
-        
+        agent_name = AGENT_NAME
+
         agent = Agent(
             agent_name=agent_name,
             agent_description="SQL agent with server-side controls"
         )
-        
+
         try:
             await agents.register_agent(client, agent, steps=[])
-            print(f"✓ Agent registered: {AGENT_ID}")
+            print(f"✓ Agent registered: {AGENT_NAME}")
         except Exception as e:
             print(f"ℹ️  Agent might already exist: {e}")
 

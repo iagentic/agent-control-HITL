@@ -44,7 +44,6 @@ from agent_control import control, ControlViolationError
 
 # Configuration
 AGENT_NAME = "demo-chatbot"
-AGENT_ID = "672e50df-af4c-429f-965a-3d7f8262302f"
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
 
@@ -161,8 +160,8 @@ async def run_demo():
     try:
         logger.info(f"Initializing agent: {AGENT_NAME}")
         agent_control.init(
-            agent_name=AGENT_ID,
-            agent_description=AGENT_NAME,
+            agent_name=AGENT_NAME,
+            agent_description="Demo chatbot for testing controls",
             server_url=SERVER_URL,
         )
         logger.info("Agent initialized successfully")

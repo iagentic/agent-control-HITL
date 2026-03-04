@@ -222,9 +222,9 @@ setup_demo_controls() {
     python setup_demo_controls.py
 }
 
-# Agent name used by the demo (must match support_agent.py)
+# Agent name used by the demo
 get_agent_name() {
-    echo "646d5dea-c2e6-4453-b446-7035482b38e4"
+    echo "customer-support-agent"
 }
 
 show_observability_stats() {

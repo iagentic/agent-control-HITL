@@ -13,7 +13,7 @@ import os
 
 from agent_control import Agent, AgentControlClient, agents, controls
 
-AGENT_ID = "989d84f0-9afe-4fb2-9e9e-e9d076271e29"
+AGENT_NAME = "crew-ai-customer-support"
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
 
@@ -21,7 +21,7 @@ async def setup_content_controls():
     """Create PII protection/unauthorized-access controls and add them directly to the agent."""
     async with AgentControlClient(base_url=SERVER_URL) as client:
         # 1. Register Agent
-        agent_name = AGENT_ID
+        agent_name = AGENT_NAME
 
         agent = Agent(
             agent_name=agent_name,
@@ -30,7 +30,7 @@ async def setup_content_controls():
 
         try:
             await agents.register_agent(client, agent, steps=[])
-            print(f"✓ Agent registered: {AGENT_ID}")
+            print(f"✓ Agent registered: {agent_name}")
         except Exception as e:
             print(f"ℹ️  Agent might already exist: {e}")
 

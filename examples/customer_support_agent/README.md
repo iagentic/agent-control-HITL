@@ -160,7 +160,7 @@ Initialize once at application startup:
 import agent_control
 
 agent_control.init(
-    agent_name="646d5dea-c2e6-4453-b446-7035482b38e4",
+    agent_name="customer-support-agent",
     agent_description="AI-powered customer support assistant",
 )
 ```

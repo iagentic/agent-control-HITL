@@ -27,7 +27,7 @@ export GALILEO_STAGE_NAME="luna2-toxicity-stage"
 
 # 4. Install deps and run the demo
 cd examples/galileo
-uv sync
+uv pip install -e . --upgrade
 uv run luna2_demo.py
 ```
 

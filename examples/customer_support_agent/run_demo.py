@@ -54,17 +54,15 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path for imports
 sys.path.insert(0, str(__file__).rsplit("/", 2)[0])
 
-# Agent UUID used in support_agent.py
-AGENT_ID = "646d5dea-c2e6-4453-b446-7035482b38e4"
+AGENT_NAME = "customer-support-agent"
 
 
 async def reset_agent():
     """Reset the agent by removing direct control associations."""
-    agent_name = AGENT_ID
     server_url = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
-    logger.info(f"Resetting agent '{AGENT_ID}' (UUID: {agent_name})")
-    print(f"Resetting agent '{AGENT_ID}' (UUID: {agent_name})...")
+    logger.info(f"Resetting agent '{AGENT_NAME}'")
+    print(f"Resetting agent '{AGENT_NAME}'...")
     print()
 
     async with AgentControlClient(base_url=server_url) as client:

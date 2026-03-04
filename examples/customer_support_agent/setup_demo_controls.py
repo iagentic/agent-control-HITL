@@ -14,9 +14,7 @@ import asyncio
 import os
 from agent_control import Agent, AgentControlClient, agents, controls
 
-# Same agent ID as in support_agent.py
-AGENT_ID = "646d5dea-c2e6-4453-b446-7035482b38e4"
-AGENT_NAME = "Customer Support Agent"
+AGENT_NAME = "customer-support-agent"
 AGENT_DESCRIPTION = "AI-powered customer support assistant"
 
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
@@ -225,8 +223,7 @@ DEMO_CONTROLS = [
 
 async def setup_demo(quiet: bool = False):
     """Set up the demo agent with controls."""
-    # Use the provided agent identifier (must match support_agent.py)
-    agent_name = AGENT_ID
+    agent_name = AGENT_NAME
 
     async with AgentControlClient(base_url=SERVER_URL, timeout=30.0) as client:
         # Check server health

@@ -41,8 +41,7 @@ except ImportError as e:
     sys.exit(1)
 
 # Agent configuration
-AGENT_ID = "qa-agent-deepeval"
-AGENT_NAME = "Q&A Agent with DeepEval"
+AGENT_NAME = "qa-agent-with-deepeval"
 AGENT_DESCRIPTION = "Question answering agent with DeepEval quality controls"
 
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
@@ -56,7 +55,7 @@ DEEPEVAL_CONTROLS = [
             "description": "Ensures LLM responses are coherent and logically consistent",
             "enabled": True,
             "execution": "server",
-            "scope": {"stages": ["post"]},
+            "scope": {"step_types": ["llm"], "stages": ["post"]},
             "selector": {},
             "evaluator": {
                 "name": "deepeval-geval",
@@ -87,7 +86,7 @@ DEEPEVAL_CONTROLS = [
             "description": "Ensures responses are relevant to the user's question",
             "enabled": True,
             "execution": "server",
-            "scope": {"stages": ["post"]},
+            "scope": {"step_types": ["llm"], "stages": ["post"]},
             "selector": {},
             "evaluator": {
                 "name": "deepeval-geval",
@@ -117,7 +116,7 @@ DEEPEVAL_CONTROLS = [
             "description": "Validates factual correctness against expected answers (when available)",
             "enabled": False,  # Disabled by default - enable when you have expected outputs
             "execution": "server",
-            "scope": {"step_types": ["llm_inference"], "stages": ["post"]},
+            "scope": {"step_types": ["llm"], "stages": ["post"]},
             "selector": {"path": "*"},
             "evaluator": {
                 "name": "deepeval-geval",
@@ -145,11 +144,10 @@ DEEPEVAL_CONTROLS = [
 
 async def setup_demo(quiet: bool = False):
     """Set up the demo agent with DeepEval controls."""
-    agent_name = AGENT_ID
+    agent_name = AGENT_NAME
 
-    print(f"Setting up agent: {AGENT_NAME}")
-    print(f"Agent ID: {AGENT_ID}")
-    print(f"Agent Name: {agent_name}")
+    print(f"Setting up agent: {AGENT_DESCRIPTION}")
+    print(f"Agent name: {agent_name}")
     print(f"Server URL: {SERVER_URL}")
     print()
 
@@ -181,7 +179,7 @@ async def setup_demo(quiet: bool = False):
             resp.raise_for_status()
             result = resp.json()
             status = "Created" if result.get("created") else "Updated"
-            print(f"✓ {status} agent: {AGENT_NAME}")
+            print(f"✓ {status} agent: {agent_name}")
         except httpx.HTTPError as e:
             print(f"❌ Error registering agent: {e}")
             return False

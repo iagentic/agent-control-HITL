@@ -23,7 +23,6 @@ Usage:
 import asyncio
 import os
 import sys
-from uuid import UUID
 
 # Add the SDK to path for development
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../sdks/python/src"))
@@ -33,7 +32,6 @@ from agent_control import AgentControlClient
 
 # Configuration
 AGENT_NAME = "demo-chatbot"
-AGENT_ID = "672e50df-af4c-429f-965a-3d7f8262302f"
 SERVER_URL = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
 
@@ -43,15 +41,12 @@ async def create_agent(client: AgentControlClient) -> str:
     print("STEP 1: Creating Agent")
     print("=" * 60)
 
-    # Use the provided UUID for the agent
-    agent_name = UUID(AGENT_ID)
-
     try:
         response = await client.http_client.post(
             "/api/v1/agents/initAgent",  # Correct endpoint
             json={
                 "agent": {
-                    "agent_name": str(agent_name),
+                    "agent_name": AGENT_NAME,
                     "agent_description": "Demo chatbot for testing controls",
                 },
                 "steps": []
@@ -67,8 +62,8 @@ async def create_agent(client: AgentControlClient) -> str:
         else:
             print(f"✓ Agent already exists: {AGENT_NAME}")
 
-        print(f"  Agent UUID: {agent_name}")
-        return str(agent_name)
+        print(f"  Agent Name: {AGENT_NAME}")
+        return AGENT_NAME
 
     except Exception as e:
         print(f"✗ Failed to create agent: {e}")
@@ -352,7 +347,7 @@ async def main():
     print("AGENT CONTROL DEMO: Setup Controls")
     print("=" * 60)
     print(f"\nServer URL: {SERVER_URL}")
-    print(f"Agent: {AGENT_NAME} ({AGENT_ID})")
+    print(f"Agent: {AGENT_NAME}")
 
     async with AgentControlClient(base_url=SERVER_URL) as client:
         # Check server health
@@ -362,15 +357,12 @@ async def main():
         except Exception as e:
             print(f"\n✗ Server not available: {e}")
             print("\nMake sure the server is running:")
-            print("  cd server && make run")
+            print("  make server-run ")
             return
-
-        # Use the provided UUID for verification
-        agent_name = AGENT_ID
 
         # If verify-only mode, just run verification
         if args.verify_only:
-            await verify_full_chain(client, agent_name)
+            await verify_full_chain(client, AGENT_NAME)
             return
 
         # 1. Create agent

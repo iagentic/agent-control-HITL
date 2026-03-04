@@ -45,15 +45,14 @@ from crewai.tools import tool
 # It's a dependency of agent_control so should be available
 
 # --- Configuration ---
-AGENT_ID = "989d84f0-9afe-4fb2-9e9e-e9d076271e29"
-AGENT_NAME = "Customer Support Crew"
+AGENT_NAME = "crew-ai-customer-support"
 AGENT_DESCRIPTION = "Customer support crew with PII protection and access controls"
 
 # Initialize Agent Control
 server_url = os.getenv("AGENT_CONTROL_URL", "http://localhost:8000")
 
 agent_control.init(
-    agent_name=AGENT_ID,
+    agent_name=AGENT_NAME,
     agent_description=AGENT_DESCRIPTION,
     server_url=server_url,
 )
