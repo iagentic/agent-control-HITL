@@ -38,6 +38,23 @@ Traditional guardrails embedded inside your agent code have critical limitations
 - **Fail-Safe Defaults** — Deny controls fail closed on error with configurable error handling
 - **API Key Authentication** — Secure your control server in production
 
+## Performance
+
+| Endpoint | Scenario | RPS | p50 | p99 |
+|----------|----------|-----|-----|-----|
+| Agent init | Agent with 3 tool steps | 509 | 19 ms | 54 ms |
+| Evaluation | 1 control, 500-char content | 437 | 36 ms | 61 ms |
+| Evaluation | 10 controls, 500-char content | 349 | 35 ms | 66 ms |
+| Evaluation | 50 controls, 500-char content | 199 | 63 ms | 91 ms |
+| Controls refresh | 5-50 controls per agent | 273-392 | 20-27 ms | 27-61 ms |
+
+- Agent init handles both create and update identically (upsert).
+- All four built-in evaluators (regex, list, JSON, SQL) perform within 40-46 ms p50 at 1 control.
+- Moving from 1 to 50 controls increased evaluation p50 by about 27 ms.
+- Local laptop benchmarks are directional and intended for developer reference. They are not production sizing guidance.
+
+_Benchmarked on Apple M5 (16 GB RAM), Docker Compose (`postgres:16` + `agent-control`). 2 minutes per scenario, 5 concurrent users for latency (p50, p99), 10-20 for throughput (RPS). RPS = completed requests per second. All scenarios completed with 0% errors._
+
 ### Examples
 
 Explore real-world integrations with popular agent frameworks, or jump to [Quick Start](#quick-start) for hands-on setup. 
