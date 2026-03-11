@@ -21,12 +21,14 @@ It is the canonical ADK example in this repo:
 1. Start the Agent Control server from the repo root:
 
 ```bash
+# From repo root
 make server-run
 ```
 
 2. Install the example dependencies:
 
 ```bash
+# In separate shell
 cd examples/google_adk_callbacks
 uv pip install -e . --upgrade
 ```
@@ -97,14 +99,5 @@ What time is it in Testville?
 `Testville` is a deliberate demo trigger that makes the tool produce an
 internal contact note so the post-tool control can block it deterministically.
 
-## Files
+For more details on this example, see the [Docs](https://docs.agentcontrol.dev/examples/google-adk-callbacks).
 
-- `setup_controls.py` - registers the agent and creates the callback example controls
-- `my_agent/agent.py` - ADK app with Agent Control callbacks
-- `.env.example` - environment variables for local runs
-
-## Notes
-
-- This example is server-only by design.
-- If you want the `@control()` pattern or sdk-local execution, use
-  `examples/google_adk_decorator/`.
