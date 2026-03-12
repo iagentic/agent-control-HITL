@@ -22,89 +22,60 @@
   <a href="https://codecov.io/gh/agentcontrol/agent-control"><img src="https://codecov.io/gh/agentcontrol/agent-control/branch/main/graph/badge.svg" alt="codecov" /></a>
 </p>
 
-> **Pro Tip:** See the full docs at [Agent Control Docs](https://docs.agentcontrol.dev/)
+<p align="center">
+  <a href="https://agentcontrol.dev">Agent Control Website</a> |
+  <a href="https://docs.agentcontrol.dev/">Docs</a> |
+  <a href="https://docs.agentcontrol.dev/core/quickstart">Quickstart</a> |
+  <a href="examples/README.md">Examples</a> |
+  <a href="https://join.slack.com/t/agentcontrol/shared_invite/zt-3se2g6d68-iGmNdRfGcD31cZ0vELMPxw">Slack</a>
+</p>
 
-> **👋 Say hello to us:** Checkout our [Slack](https://join.slack.com/t/agentcontrol/shared_invite/zt-3s2pbclup-T4EJ5sA7SOxR6jTeETZljA). Pop in to ask for help, suggest features, or just to say hello!
+Enforce runtime guardrails through a centralized control layer—configure once and apply across all agents. Agent Control evaluates inputs and outputs against configurable rules to block prompt injections, PII leakage, and other risks without changing your agent’s code.
 
-**Runtime guardrails for AI agents — configurable, extensible, and production-ready.**
+![Agent Control Overview](docs/images/AgentControlDiagram.png)
 
-AI agents interact with users, tools, and external systems in unpredictable ways. **Agent Control** provides an extensible, control-based runtime layer that evaluates inputs and outputs against configurable rules — blocking prompt injections, PII leakage, and other risks without modifying your agent's code.
+- **Centralized safety** - define controls once, apply across agents, update without redeploying
+- **Runtime configuration** - manage controls via API or UI, no code changes needed
+- **Pluggable evaluators** - built-in (regex, list, JSON, SQL) or bring your own
+- **Framework support** - works with LangChain, CrewAI, Google ADK, AWS Strands, and more
 
-![Agent Control Architecture](docs/images/Architecture.png)
+## Quick Start
 
-## Why Do You Need It
+Prerequisites: Docker and Python 3.12+.
 
-Traditional guardrails embedded inside your agent code have critical limitations:
+Quick start flow:
 
-- **Scattered Logic:** Control code is buried across your agent codebase, making it hard to audit or update
-- **Deployment Overhead:** Changing protection rules requires code changes and redeployment
-- **Limited Adaptability:** Hardcoded checks can’t adapt to new attack patterns or production data variations
+```
+Start server
+  ↓
+Install SDK
+  ↓
+Wrap a model or tool call with @control() and register your agent
+  ↓
+Create controls (UI or SDK/API)
+```
 
-**Agent Control gives you runtime control over what your agents can and cannot do:**
+### 1. Start the server
 
-- **For developers:** Centralize safety logic and adapt to emerging threats instantly without redeployment
-- **For non-technical teams:** Intuitive UI to configure and monitor agent safety without touching code
-- **For organizations:** Reusable controls across agents with comprehensive audit trails
-
-## Key Features
-
-- **Safety Without Code Changes** — Add guardrails with a `@control()` decorator
-- **Runtime Configuration** — Update controls instantly via API or UI without redeploying your agentic applications
-- **Centralized Controls** — Define controls once, apply to multiple agents
-- **Web Dashboard** — Visual interface for managing agents, controls, and viewing analytics
-- **Pluggable Evaluators** — Built-in (regex, list matching, Luna-2 AI) or custom evaluators
-- **Fail-Safe Defaults** — Deny controls fail closed on error with configurable error handling
-- **API Key Authentication** — Secure your control server in production
-
----
-
-## Examples
-
-Explore real-world integrations with popular agent frameworks, or jump to [Quick Start](#quick-start).
-
-- **[Examples Overview](examples/README.md)** — Complete catalog of examples and patterns
-- **[TypeScript SDK](examples/typescript_sdk/)** — Consumer-style TypeScript example using the published npm package
-
-### Core demos
-
-- **[Customer Support Agent](examples/customer_support_agent/)** — Enterprise scenario with PII protection, prompt-injection defense, and multiple tools
-- **[Steer Action Demo](examples/steer_action_demo/)** — Banking transfer agent showcasing allow, deny, warn, and steer actions
-
-### Evaluator integrations
-
-- **[DeepEval Integration](examples/deepeval/)** — Build a custom evaluator using DeepEval GEval metrics
-- **[Galileo Luna-2 Integration](examples/galileo/)** — Toxicity detection and content moderation with Galileo Protect
-
-### Framework integrations
-
-- **[LangChain](examples/langchain/)** — Protect a SQL agent from dangerous queries with server-side controls
-- **[CrewAI](examples/crewai/)** — Combine Agent Control security controls with CrewAI guardrails for customer support
-- **[Strands Agents SDK](examples/strands_agents/)** — Steer and control agent workflows with the Strands Agent SDK
-- **[Google ADK Callbacks](examples/google_adk_callbacks/)** — Model and tool protection using ADK's native callback hooks
-- **[Google ADK Decorator](examples/google_adk_decorator/)** — Tool-level protection using Agent Control's @control() decorator
-
----
-
-## Quick start
-
-Protect your AI agent in 4 simple steps.
-
-### Prerequisites
-
-- Python 3.12+
-- Docker
-
----
-
-### ⚡ Quick Start for Developers
-
-**Quick setup (no repo cloning required)** — Copy this into your terminal or paste it directly into your coding agent to start the Agent Control server, UI.
+No repo clone required:
 
 ```bash
 curl -L https://raw.githubusercontent.com/agentcontrol/agent-control/refs/heads/main/docker-compose.yml | docker compose -f - up -d
 ```
 
-Then, install the SDK in a virtual environment:
+This starts PostgreSQL and the Agent Control Server at `http://localhost:8000`.
+
+Verify it is up:
+
+```bash
+curl http://localhost:8000/health
+```
+
+### 2. Install the SDK
+
+Run this in your agent project directory.
+
+Python:
 
 ```bash
 uv venv
@@ -112,86 +83,30 @@ source .venv/bin/activate
 uv pip install agent-control-sdk
 ```
 
-**What this does:**
+TypeScript:
 
-- ✅ Starts Agent Control server at `http://localhost:8000`
-- ✅ Starts UI dashboard at `http://localhost:8000`
-- ✅ Installs Python SDK (`agent-control-sdk`)
+- See the [TypeScript SDK example](examples/typescript_sdk/README.md).
 
-**Next:** Jump to [Step 3: Register your agent](#step-3-register-your-agent)
-
----
-
-**Alternatively**, for local development with the Agent Control repository, clone the repo and follow all steps below.
-
-### Step 1: Start the Agent Control server
-
-Startup Agent Control server manually for local development.
-
-#### Local development (cloning the repo)
-
-Prerequisites:
-
-- uv — Fast Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- Node.js 18+ — For the web dashboard (optional)
-
-```bash
-# Clone the repository
-
-git clone https://github.com/agentcontrol/agent-control.git
-cd agent-control
-
-# Install dependencies
-
-make sync
-
-# Start the Agent Control server (boots Postgres + runs migrations)
-
-make server-run
-
-# Start the UI (in a separate shell)
-
-make ui-install
-make ui-dev
-```
-
-- Server runs at `http://localhost:8000`
-- UI runs at `http://localhost:4000`
-
-Verify the server by opening `http://localhost:8000/health` — you should see `{"status": "healthy", "version": "..."}`.
-
-### Step 2: Install the SDK
-
-In your agent application project:
-
-```bash
-pip install agent-control-sdk
-```
-
-### Step 3: Register your agent
-
-Agent must be registered with the server. You should also add the `@control` decorator around tools and LLM call functions.
-
-Here is a contrived example. Reference our [Examples](examples/) for real-world examples for specific frameworks.
+### 3. Wrap a call and register your agent
 
 ```python
 # my_agent.py
-
 import asyncio
 import agent_control
 from agent_control import control, ControlViolationError
 
+# Indicate which step you want to be guarded
 @control()
 async def chat(message: str) -> str:
-    # In production: response = await LLM.ainvoke(message)
-    # For demo: simulate LLM that might leak sensitive data
+    # Simulates an LLM that might leak sensitive data
     if "test" in message.lower():
-        return "Your SSN is 123-45-6789"  # Will be blocked!
+        return "Your SSN is 123-45-6789"  # Blocked!
     return f"Echo: {message}"
 
+# Register your agent with Agent Control
 agent_control.init(
-    agent_name="awesome_bot_3000",
-    agent_description="My Chatbot",
+    agent_name="my-first-agent",
+    agent_description="My first agent",
 )
 
 async def main():
@@ -203,69 +118,66 @@ async def main():
 asyncio.run(main())
 ```
 
-### Step 4: Add controls
+Run the script to register your agent:
 
-The easiest way to add controls is through the UI — see the [UI Quickstart](https://docs.agentcontrol.dev/core/ui-quickstart) for a step-by-step guide. Alternatively, use the SDK as shown below or call the API directly.
+```bash
+uv python my_agent.py
+```
 
-Run the following setup script to create controls to protect your agent.
+Now, create a control in Step 4 to see blocking in action.
+
+### 4. Add controls
+
+Minimal SDK example (assumes the server is running at `http://localhost:8000`):
 
 ```python
-# setup.py - Run once to configure agent controls
-
 import asyncio
-from datetime import datetime, UTC
 from agent_control import AgentControlClient, controls, agents
-from agent_control_models import Agent
 
-async def setup():
-    async with AgentControlClient() as client:  # Defaults to localhost:8000
-        # 1. Register agent first
-        agent = Agent(
-            agent_name="awesome_bot_3000",
-            agent_description="My Chatbot",
-            agent_created_at=datetime.now(UTC).isoformat(),
-        )
-        await agents.register_agent(client, agent, steps=[])
-
-        # 2. Create control (blocks SSN patterns in output)
+async def main():
+    async with AgentControlClient() as client:
+        # Create a control to see Agent Control block PII leaks in action.
         control = await controls.create_control(
             client,
-            name="block-ssn",
+            name="block-ssn-demo",
             data={
                 "enabled": True,
                 "execution": "server",
                 "scope": {"stages": ["post"]},
                 "selector": {"path": "output"},
-                "evaluator": {
-                    "name": "regex",
-                    "config": {"pattern": r"\b\d{3}-\d{2}-\d{4}\b"},
-                },
+                "evaluator": {"name": "regex", "config": {"pattern": r"\b\d{3}-\d{2}-\d{4}\b"}},
                 "action": {"decision": "deny"},
             },
         )
-
-        # 3. Associate control directly with agent
         await agents.add_agent_control(
-            client,
-            agent_name=agent.agent_name,
-            control_id=control["control_id"],
+            client, agent_name="my-first-agent", control_id=control["control_id"]
         )
 
-        print("✅ Setup complete!")
-        print(f"   Control ID: {control['control_id']}")
-
-asyncio.run(setup())
+asyncio.run(main())
 ```
 
-Now, test your agent:
+**Tip**: Use the UI to add controls if you prefer a visual flow—see the [UI Quickstart](https://docs.agentcontrol.dev/core/ui-quickstart).
 
-```bash
-uv run my_agent.py
-```
+Now re-run your agent to see controls take effect.
 
-Done. Your agent now blocks SSN patterns automatically.
+## Examples:
 
-For detailed explanations of how controls work under the hood, configuration options, and other development setup, see the complete [Quickstart](https://docs.agentcontrol.dev/core/quickstart) guide.
+Explore working examples for popular frameworks.
+
+- [Customer Support Agent](examples/customer_support_agent/) - PII protection, prompt injection defense, and tool controls
+- [Steer Action Demo](examples/steer_action_demo/) - allow, deny, warn, and steer decisions in one workflow
+- [LangChain](examples/langchain/) - protect a SQL agent from dangerous queries
+- [CrewAI](examples/crewai/) - combine Agent Control with CrewAI guardrails
+- [AWS Strands](examples/strands_agents/) - protect Strands workflows and tool calls
+- [Google ADK Decorator](examples/google_adk_decorator/) - add controls with `@control()`
+
+## How It Works
+
+![Agent Control Architecture](docs/images/Architecture.png)
+
+Agent Control evaluates agent inputs and outputs against controls you configure at runtime. That keeps guardrail logic out of prompt code and tool code, while still letting teams update protections centrally.
+
+Read more about [Controls](https://docs.agentcontrol.dev/concepts/controls) and Learn how controls, selectors, and evaluators work
 
 ## Performance
 
@@ -277,30 +189,15 @@ For detailed explanations of how controls work under the hood, configuration opt
 | Evaluation       | 50 controls, 500-char content | 199     | 63 ms    | 91 ms    |
 | Controls refresh | 5-50 controls per agent       | 273-392 | 20-27 ms | 27-61 ms |
 
-- Agent init handles both create and update identically (upsert).
-- All four built-in evaluators (regex, list, JSON, SQL) perform within 40-46 ms p50 at 1 control.
-- Moving from 1 to 50 controls increased evaluation p50 by about 27 ms.
-- Local laptop benchmarks are directional and intended for developer reference. They are not production sizing guidance.
+- Agent init handles create and update as an upsert.
+- Local laptop benchmarks are directional, not production sizing guidance.
 
-_Benchmarked on Apple M5 (16 GB RAM), Docker Compose (`postgres:16` + `agent-control`). 2 minutes per scenario, 5 concurrent users for latency (p50, p99), 10-20 for throughput (RPS). RPS = completed requests per second. All scenarios completed with 0% errors._
-
----
+_Benchmarked on Apple M5 (16 GB RAM), Docker Compose (`postgres:16` + `agent-control`)._
 
 ## Contributing
 
-We welcome contributions! To get started:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/your-feature`)
-3. Make your changes
-4. Run quality checks (`make check`)
-5. Commit using conventional commits (`feat:`, `fix:`, `docs:`, etc.)
-6. Submit a Pull Request
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines, code conventions, and development workflow.
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, development workflow, and quality checks.
 
 ## License
 
-Apache 2.0 — See [LICENSE](LICENSE) for details.
+Apache 2.0. See [LICENSE](LICENSE) for details.
