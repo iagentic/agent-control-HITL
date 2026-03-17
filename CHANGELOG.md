@@ -2,6 +2,21 @@
 
 <!-- version list -->
 
+## v7.0.0 (2026-03-17)
+
+### Bug Fixes
+
+- **server**: Reject empty string list evaluator values
+  ([#121](https://github.com/agentcontrol/agent-control/pull/121),
+  [`2c55d27`](https://github.com/agentcontrol/agent-control/commit/2c55d27fc4e1b2b3235a2b672226e77f3365c1bf))
+
+### Features
+
+- **server**: Implement recursive control condition trees
+  ([#115](https://github.com/agentcontrol/agent-control/pull/115),
+  [`2ff4c12`](https://github.com/agentcontrol/agent-control/commit/2ff4c121723c1a304fecfd2e179e4b6f4c71af2b))
+
+
 ## v6.8.1 (2026-03-16)
 
 ### Bug Fixes
