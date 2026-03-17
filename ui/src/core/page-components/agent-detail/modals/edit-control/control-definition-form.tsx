@@ -30,6 +30,7 @@ export type ControlDefinitionFormWithStepsProps = ControlDefinitionFormProps & {
 export const ControlDefinitionForm = ({
   form,
   steps,
+  disableSelectorPath = false,
 }: ControlDefinitionFormWithStepsProps) => {
   return (
     <Stack gap="md">
@@ -86,6 +87,7 @@ export const ControlDefinitionForm = ({
         )}
         size="sm"
         placeholder="e.g., input or input.args.command"
+        disabled={disableSelectorPath}
         {...form.getInputProps('selector_path')}
       />
 

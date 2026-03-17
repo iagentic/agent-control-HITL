@@ -30,6 +30,25 @@ _FALLBACK_TRACE_ID = "0" * 32
 _FALLBACK_SPAN_ID = "0" * 16
 _trace_warning_logged = False
 
+
+def _observability_metadata(
+    control_def: ControlDefinition,
+) -> tuple[str | None, str | None, dict[str, object]]:
+    """Return representative event fields plus full composite context."""
+    identity = control_def.observability_identity()
+    return (
+        identity.selector_path,
+        identity.evaluator_name,
+        {
+            "primary_evaluator": identity.evaluator_name,
+            "primary_selector_path": identity.selector_path,
+            "leaf_count": identity.leaf_count,
+            "all_evaluators": identity.all_evaluators,
+            "all_selector_paths": identity.all_selector_paths,
+        },
+    )
+
+
 def _map_applies_to(step_type: str) -> Literal["llm_call", "tool_call"]:
     return "tool_call" if step_type == "tool" else "llm_call"
 
@@ -77,6 +96,14 @@ def _emit_local_events(
             return
         for match in matches:
             ctrl = control_lookup.get(match.control_id)
+            event_metadata = dict(match.result.metadata or {})
+            selector_path = None
+            evaluator_name = None
+            if ctrl:
+                selector_path, evaluator_name, identity_metadata = _observability_metadata(
+                    ctrl.control
+                )
+                event_metadata.update(identity_metadata)
             add_event(
                 ControlExecutionEvent(
                     control_execution_id=match.control_execution_id,
@@ -91,10 +118,10 @@ def _emit_local_events(
                     matched=matched,
                     confidence=match.result.confidence,
                     timestamp=now,
-                    evaluator_name=ctrl.control.evaluator.name if ctrl else None,
-                    selector_path=ctrl.control.selector.path if ctrl else None,
+                    evaluator_name=evaluator_name,
+                    selector_path=selector_path,
                     error_message=match.result.error if not matched else None,
-                    metadata=match.result.metadata or {},
+                    metadata=event_metadata,
                 )
             )
 
@@ -267,6 +294,7 @@ async def check_evaluation_with_local(
     # Partition controls by local flag
     local_controls: list[_ControlAdapter] = []
     parse_errors: list[ControlMatch] = []
+    available_evaluators = list_evaluators()
     server_control_payloads: list[dict[str, Any]] = []
 
     for control in controls:
@@ -280,20 +308,21 @@ async def check_evaluation_with_local(
 
         try:
             control_def = ControlDefinition.model_validate(control_data)
-            evaluator_name = control_def.evaluator.name
+            for _, evaluator_spec in control_def.iter_condition_leaf_parts():
+                evaluator_name = evaluator_spec.name
 
-            if ":" in evaluator_name:
-                raise RuntimeError(
-                    f"Control '{control['name']}' is marked execution='sdk' but uses "
-                    f"agent-scoped evaluator '{evaluator_name}' which is server-only. "
-                    "Set execution='server' or use a built-in evaluator."
-                )
-            if evaluator_name not in list_evaluators():
-                raise RuntimeError(
-                    f"Control '{control['name']}' is marked execution='sdk' but evaluator "
-                    f"'{evaluator_name}' is not available in the SDK. "
-                    "Install the evaluator or set execution='server'."
-                )
+                if ":" in evaluator_name:
+                    raise RuntimeError(
+                        f"Control '{control['name']}' is marked execution='sdk' but uses "
+                        f"agent-scoped evaluator '{evaluator_name}' which is server-only. "
+                        "Set execution='server' or use a built-in evaluator."
+                    )
+                if evaluator_name not in available_evaluators:
+                    raise RuntimeError(
+                        f"Control '{control['name']}' is marked execution='sdk' but evaluator "
+                        f"'{evaluator_name}' is not available in the SDK. "
+                        "Install the evaluator or set execution='server'."
+                    )
 
             local_controls.append(
                 _ControlAdapter(

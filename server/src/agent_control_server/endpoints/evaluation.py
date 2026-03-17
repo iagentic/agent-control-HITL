@@ -58,6 +58,30 @@ def _sanitize_evaluator_error(error_message: str) -> str:
     return SAFE_EVALUATOR_ERROR
 
 
+def _sanitize_condition_trace(trace: object) -> object:
+    """Recursively redact internal evaluator errors from condition traces."""
+    if isinstance(trace, list):
+        return [_sanitize_condition_trace(item) for item in trace]
+
+    if not isinstance(trace, dict):
+        return trace
+
+    sanitized = {
+        key: _sanitize_condition_trace(value)
+        for key, value in trace.items()
+    }
+
+    raw_error = sanitized.get("error")
+    if isinstance(raw_error, str) and raw_error:
+        safe_error = _sanitize_evaluator_error(raw_error)
+        sanitized["error"] = safe_error
+        raw_message = sanitized.get("message")
+        if raw_message is None or isinstance(raw_message, str):
+            sanitized["message"] = safe_error
+
+    return sanitized
+
+
 def _sanitize_control_match(match: ControlMatch) -> ControlMatch:
     """Redact internal evaluator error strings from a control match."""
     if match.result.error is None:
@@ -65,10 +89,15 @@ def _sanitize_control_match(match: ControlMatch) -> ControlMatch:
 
     safe_error = _sanitize_evaluator_error(match.result.error)
     safe_message = safe_error
+    metadata = dict(match.result.metadata or {})
+    condition_trace = metadata.get("condition_trace")
+    if condition_trace is not None:
+        metadata["condition_trace"] = _sanitize_condition_trace(condition_trace)
     sanitized_result = match.result.model_copy(
         update={
             "error": safe_error,
             "message": safe_message,
+            "metadata": metadata or None,
         }
     )
     return match.model_copy(update={"result": sanitized_result})
@@ -94,6 +123,24 @@ def _sanitize_evaluation_response(response: EvaluationResponse) -> EvaluationRes
                 else None
             ),
         }
+    )
+
+
+def _observability_metadata(
+    control_def: ControlDefinition,
+) -> tuple[str | None, str | None, dict[str, object]]:
+    """Return representative event fields plus full composite context."""
+    identity = control_def.observability_identity()
+    return (
+        identity.selector_path,
+        identity.evaluator_name,
+        {
+            "primary_evaluator": identity.evaluator_name,
+            "primary_selector_path": identity.selector_path,
+            "leaf_count": identity.leaf_count,
+            "all_evaluators": identity.all_evaluators,
+            "all_selector_paths": identity.all_selector_paths,
+        },
     )
 
 
@@ -170,7 +217,7 @@ async def evaluate(
     # Execute Control Engine (parallel with cancel-on-deny)
     engine = ControlEngine(engine_controls)
     try:
-        response = await engine.process(request)
+        raw_response = await engine.process(request)
     except ValueError:
         _logger.exception("Evaluation failed due to invalid configuration or input")
         raise APIValidationError(
@@ -188,8 +235,6 @@ async def evaluate(
             ],
         )
 
-    response = _sanitize_evaluation_response(response)
-
     # Calculate total execution time
     total_duration_ms = (time.perf_counter() - start_time) * 1000
 
@@ -202,7 +247,7 @@ async def evaluate(
             ingestor = None
 
         await _emit_observability_events(
-            response=response,
+            response=raw_response,
             request=request,
             trace_id=trace_id,
             span_id=span_id,
@@ -213,7 +258,7 @@ async def evaluate(
             ingestor=ingestor,
         )
 
-    return response
+    return _sanitize_evaluation_response(raw_response)
 
 
 async def _emit_observability_events(
@@ -239,6 +284,14 @@ async def _emit_observability_events(
     if response.matches:
         for match in response.matches:
             ctrl = control_lookup.get(match.control_id)
+            event_metadata = dict(match.result.metadata or {})
+            selector_path = None
+            evaluator_name = None
+            if ctrl:
+                selector_path, evaluator_name, identity_metadata = _observability_metadata(
+                    ctrl.control
+                )
+                event_metadata.update(identity_metadata)
             events.append(
                 ControlExecutionEvent(
                     control_execution_id=match.control_execution_id,
@@ -253,10 +306,10 @@ async def _emit_observability_events(
                     matched=True,
                     confidence=match.result.confidence,
                     timestamp=now,
-                    evaluator_name=ctrl.control.evaluator.name if ctrl else None,
-                    selector_path=ctrl.control.selector.path if ctrl else None,
+                    evaluator_name=evaluator_name,
+                    selector_path=selector_path,
                     error_message=match.result.error,
-                    metadata=match.result.metadata or {},
+                    metadata=event_metadata,
                 )
             )
 
@@ -264,6 +317,14 @@ async def _emit_observability_events(
     if response.errors:
         for error in response.errors:
             ctrl = control_lookup.get(error.control_id)
+            event_metadata = dict(error.result.metadata or {})
+            selector_path = None
+            evaluator_name = None
+            if ctrl:
+                selector_path, evaluator_name, identity_metadata = _observability_metadata(
+                    ctrl.control
+                )
+                event_metadata.update(identity_metadata)
             events.append(
                 ControlExecutionEvent(
                     control_execution_id=error.control_execution_id,
@@ -278,10 +339,10 @@ async def _emit_observability_events(
                     matched=False,
                     confidence=error.result.confidence,
                     timestamp=now,
-                    evaluator_name=ctrl.control.evaluator.name if ctrl else None,
-                    selector_path=ctrl.control.selector.path if ctrl else None,
+                    evaluator_name=evaluator_name,
+                    selector_path=selector_path,
                     error_message=error.result.error,
-                    metadata=error.result.metadata or {},
+                    metadata=event_metadata,
                 )
             )
 
@@ -289,6 +350,14 @@ async def _emit_observability_events(
     if response.non_matches:
         for non_match in response.non_matches:
             ctrl = control_lookup.get(non_match.control_id)
+            event_metadata = dict(non_match.result.metadata or {})
+            selector_path = None
+            evaluator_name = None
+            if ctrl:
+                selector_path, evaluator_name, identity_metadata = _observability_metadata(
+                    ctrl.control
+                )
+                event_metadata.update(identity_metadata)
             events.append(
                 ControlExecutionEvent(
                     control_execution_id=non_match.control_execution_id,
@@ -303,10 +372,10 @@ async def _emit_observability_events(
                     matched=False,
                     confidence=non_match.result.confidence,
                     timestamp=now,
-                    evaluator_name=ctrl.control.evaluator.name if ctrl else None,
-                    selector_path=ctrl.control.selector.path if ctrl else None,
+                    evaluator_name=evaluator_name,
+                    selector_path=selector_path,
                     error_message=None,
-                    metadata=non_match.result.metadata or {},
+                    metadata=event_metadata,
                 )
             )
 

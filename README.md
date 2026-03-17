@@ -160,10 +160,12 @@ async def setup():
                 "enabled": True,
                 "execution": "server",
                 "scope": {"stages": ["post"]},
-                "selector": {"path": "output"},
-                "evaluator": {
-                    "name": "regex",
-                    "config": {"pattern": r"\b\d{3}-\d{2}-\d{4}\b"},
+                "condition": {
+                    "selector": {"path": "output"},
+                    "evaluator": {
+                        "name": "regex",
+                        "config": {"pattern": r"\b\d{3}-\d{2}-\d{4}\b"},
+                    },
                 },
                 "action": {"decision": "deny"},
             },
@@ -181,6 +183,8 @@ async def setup():
 
 asyncio.run(setup())
 ```
+
+Controls now store leaf `selector` and `evaluator` definitions under `condition`, which also enables composite `and`, `or`, and `not` trees.
 
 **Tip**: If you prefer a visual flow, use the UI instead - see the [UI Quickstart](https://docs.agentcontrol.dev/core/ui-quickstart).
 

@@ -33,7 +33,9 @@ async def test_health_check_workflow(
 
 
 @pytest.mark.asyncio
-async def test_client_context_manager() -> None:
+async def test_client_context_manager(
+    monkeypatch: pytest.MonkeyPatch, server_url: str
+) -> None:
     """
     Test client context manager behavior.
 
@@ -41,6 +43,10 @@ async def test_client_context_manager() -> None:
     - Client can be created and closed properly
     - Context manager handles cleanup
     """
+    # Given: the SDK client is configured from the test server URL environment variable
+    monkeypatch.setenv("AGENT_CONTROL_URL", server_url)
+
+    # When: using AgentControlClient as an async context manager
     async with agent_control.AgentControlClient() as client:
         # Verify client is initialized
         assert client._client is not None
@@ -49,6 +55,7 @@ async def test_client_context_manager() -> None:
         health = await client.health_check()
         assert health is not None
 
+    # Then: the client works inside the context manager and exits cleanly
     # After context, client should be closed
     # (we can't easily verify this without accessing internals)
     print("✓ Client context manager works correctly")
@@ -69,4 +76,3 @@ async def test_invalid_server_url() -> None:
             await client.health_check()
 
     print("✓ Invalid server URL correctly raises error")
-

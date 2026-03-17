@@ -1,8 +1,10 @@
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Protocol
 
 from agent_control_engine import list_evaluators
 from agent_control_models.agent import Agent as APIAgent
 from agent_control_models.agent import StepSchema
+from agent_control_models.controls import ControlDefinition
 from agent_control_models.errors import ErrorCode, ValidationErrorItem
 from agent_control_models.server import (
     AgentControlsResponse,
@@ -80,6 +82,13 @@ _CORRUPTED_AGENT_DATA_MESSAGE = "Stored agent data is corrupted and cannot be pa
 type StepKeyTuple = tuple[str, str]
 
 
+class _ControlWithDefinition(Protocol):
+    """Minimal control shape needed for evaluator dependency scans."""
+
+    name: str
+    control: ControlDefinition
+
+
 # =============================================================================
 # List Agents Models
 # =============================================================================
@@ -109,45 +118,70 @@ def _validate_controls_for_agent(agent: Agent, controls: list[Control]) -> list[
         if not control.data:
             continue
 
-        evaluator_cfg = control.data.get("evaluator", {})
-        evaluator_name = evaluator_cfg.get("name", "")
-        if not evaluator_name:
+        try:
+            control_definition = ControlDefinition.model_validate(control.data)
+        except ValidationError:
+            errors.append(f"Control '{control.name}' has corrupted data")
             continue
 
-        parsed = parse_evaluator_ref_full(evaluator_name)
-        if parsed.type != "agent":
-            continue  # Built-in/external evaluator, already validated at control creation
+        for _, evaluator_cfg in control_definition.iter_condition_leaf_parts():
+            evaluator_name = evaluator_cfg.name
+            parsed = parse_evaluator_ref_full(evaluator_name)
+            if parsed.type != "agent":
+                continue  # Built-in/external evaluator, already validated at control creation
 
-        # Agent-scoped evaluator - check if target matches this agent
-        if parsed.namespace != agent.name:
-            errors.append(
-                f"Control '{control.name}' references evaluator '{evaluator_name}' "
-                f"which belongs to agent '{parsed.namespace}', not '{agent.name}'"
-            )
-            continue
-
-        # Check if evaluator exists on this agent
-        if parsed.local_name not in agent_evaluators:
-            errors.append(
-                f"Control '{control.name}' references evaluator '{parsed.local_name}' "
-                f"which is not registered with agent '{agent.name}'. "
-                f"Register it via initAgent or use a different evaluator."
-            )
-            continue
-
-        # Validate config against schema
-        registered_ev = agent_evaluators[parsed.local_name]
-        config = evaluator_cfg.get("config", {})
-        if registered_ev.config_schema:
-            try:
-                validate_config_against_schema(config, registered_ev.config_schema)
-            except JSONSchemaValidationError as e:
+            # Agent-scoped evaluator - check if target matches this agent
+            if parsed.namespace != agent.name:
                 errors.append(
-                    f"Control '{control.name}' invalid config for "
-                    f"'{parsed.local_name}': {e.message}"
+                    f"Control '{control.name}' references evaluator '{evaluator_name}' "
+                    f"which belongs to agent '{parsed.namespace}', not '{agent.name}'"
                 )
+                continue
+
+            # Check if evaluator exists on this agent
+            if parsed.local_name not in agent_evaluators:
+                errors.append(
+                    f"Control '{control.name}' references evaluator '{parsed.local_name}' "
+                    f"which is not registered with agent '{agent.name}'. "
+                    f"Register it via initAgent or use a different evaluator."
+                )
+                continue
+
+            # Validate config against schema
+            registered_ev = agent_evaluators[parsed.local_name]
+            if registered_ev.config_schema:
+                try:
+                    validate_config_against_schema(
+                        evaluator_cfg.config,
+                        registered_ev.config_schema,
+                    )
+                except JSONSchemaValidationError as e:
+                    errors.append(
+                        f"Control '{control.name}' invalid config for "
+                        f"'{parsed.local_name}': {e.message}"
+                    )
 
     return errors
+
+
+def _find_referencing_controls_for_removed_evaluators(
+    controls: Sequence[_ControlWithDefinition],
+    agent_name: str,
+    remove_evaluator_set: set[str],
+) -> list[tuple[str, str]]:
+    """Return sorted unique control/evaluator pairs blocking evaluator removal."""
+    referencing_control_set: set[tuple[str, str]] = set()
+
+    for ctrl in controls:
+        for _, evaluator_spec in ctrl.control.iter_condition_leaf_parts():
+            evaluator_ref = evaluator_spec.name
+            if ":" not in evaluator_ref:
+                continue
+            ref_agent, ref_eval = evaluator_ref.split(":", 1)
+            if ref_agent == agent_name and ref_eval in remove_evaluator_set:
+                referencing_control_set.add((ctrl.name, ref_eval))
+
+    return sorted(referencing_control_set, key=lambda item: (item[0], item[1]))
 
 
 async def _validate_policy_controls_for_agent(
@@ -198,17 +232,20 @@ async def _build_overwrite_evaluator_removals(
         )
         return [InitAgentEvaluatorRemoval(name=name) for name in sorted(removed_evaluators)]
 
-    references_by_evaluator: dict[str, list[tuple[int, str]]] = {}
+    references_by_evaluator: dict[str, set[tuple[int, str]]] = {}
     for control in controls:
-        evaluator_ref = control.control.evaluator.name
-        parsed = parse_evaluator_ref_full(evaluator_ref)
-        if parsed.type != "agent":
-            continue
-        if parsed.namespace != agent.name:
-            continue
-        if parsed.local_name not in removed_evaluators:
-            continue
-        references_by_evaluator.setdefault(parsed.local_name, []).append((control.id, control.name))
+        for _, evaluator_spec in control.control.iter_condition_leaf_parts():
+            evaluator_ref = evaluator_spec.name
+            parsed = parse_evaluator_ref_full(evaluator_ref)
+            if parsed.type != "agent":
+                continue
+            if parsed.namespace != agent.name:
+                continue
+            if parsed.local_name not in removed_evaluators:
+                continue
+            references_by_evaluator.setdefault(parsed.local_name, set()).add(
+                (control.id, control.name)
+            )
 
     removals: list[InitAgentEvaluatorRemoval] = []
     for evaluator_name in sorted(removed_evaluators):
@@ -216,12 +253,13 @@ async def _build_overwrite_evaluator_removals(
         if references is None:
             removals.append(InitAgentEvaluatorRemoval(name=evaluator_name))
             continue
+        sorted_references = sorted(references, key=lambda item: (item[1], item[0]))
         removals.append(
             InitAgentEvaluatorRemoval(
                 name=evaluator_name,
                 referenced_by_active_controls=True,
-                control_ids=[control_id for control_id, _ in references],
-                control_names=[control_name for _, control_name in references],
+                control_ids=[control_id for control_id, _ in sorted_references],
+                control_names=[control_name for _, control_name in sorted_references],
             )
         )
     return removals
@@ -1613,16 +1651,9 @@ async def patch_agent(
 
         # Check if any active controls reference evaluators being removed.
         controls = await list_controls_for_agent(agent.name, db)
-        referencing_controls: list[tuple[str, str]] = []  # (control_name, evaluator)
-
-        for ctrl in controls:
-            evaluator_ref = ctrl.control.evaluator.name
-            if ":" in evaluator_ref:
-                ref_agent, ref_eval = evaluator_ref.split(":", 1)
-                # Check if this control references an evaluator we're removing
-                # AND it's scoped to this agent (by name match)
-                if ref_agent == agent.name and ref_eval in remove_evaluator_set:
-                    referencing_controls.append((ctrl.name, ref_eval))
+        referencing_controls = _find_referencing_controls_for_removed_evaluators(
+            controls, agent.name, remove_evaluator_set
+        )
 
         if referencing_controls:
             raise ConflictError(

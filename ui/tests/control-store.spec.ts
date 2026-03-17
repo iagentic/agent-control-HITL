@@ -786,22 +786,25 @@ test.describe('Modal Routing', () => {
       }
     );
 
-    await mockedPage.route('**/api/v1/controls/*', async (route, request) => {
-      if (request.method() === 'DELETE') {
-        cleanupDeleteCalls += 1;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            dissociated_from_policies: [],
-            dissociated_from_agents: [],
-          }),
-        });
-      } else {
-        await route.continue();
+    await mockedPage.route(
+      /\/api\/v1\/controls\/\d+\?force=true$/,
+      async (route, request) => {
+        if (request.method() === 'DELETE') {
+          cleanupDeleteCalls += 1;
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              success: true,
+              dissociated_from_policies: [],
+              dissociated_from_agents: [],
+            }),
+          });
+        } else {
+          await route.continue();
+        }
       }
-    });
+    );
 
     const controlNameInput = createModal.getByPlaceholder('Enter control name');
     await controlNameInput.fill('cleanup-test-control');

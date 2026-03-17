@@ -80,4 +80,5 @@ export type EvaluatorJsonViewProps = {
 
 export type ControlDefinitionFormProps = {
   form: UseFormReturnType<ControlDefinitionFormValues>;
+  disableSelectorPath?: boolean;
 };

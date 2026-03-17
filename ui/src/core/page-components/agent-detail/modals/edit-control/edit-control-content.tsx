@@ -1,12 +1,23 @@
-import { Box, Divider, Grid, Group, Text, TextInput } from '@mantine/core';
+import {
+  Alert,
+  Box,
+  Divider,
+  Grid,
+  Group,
+  Text,
+  TextInput,
+} from '@mantine/core';
 import { useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { Button } from '@rungalileo/jupiter-ds';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isApiError } from '@/core/api/errors';
-import type { Control, ProblemDetail } from '@/core/api/types';
-import { getEvaluator } from '@/core/evaluators';
+import type {
+  Control,
+  ControlDefinition,
+  ProblemDetail,
+} from '@/core/api/types';
 import { useAddControlToAgent } from '@/core/hooks/query-hooks/use-add-control-to-agent';
 import { useAgent } from '@/core/hooks/query-hooks/use-agent';
 import { useUpdateControl } from '@/core/hooks/query-hooks/use-update-control';
@@ -15,6 +26,10 @@ import { useValidateControlData } from '@/core/hooks/query-hooks/use-validate-co
 import { openActionConfirmModal } from '@/core/utils/modals';
 
 import { ApiErrorAlert } from './api-error-alert';
+import {
+  buildEditableCondition,
+  getControlConditionState,
+} from './control-condition';
 import { ControlDefinitionForm } from './control-definition-form';
 import { EvaluatorConfigSection } from './evaluator-config-section';
 import type { ControlDefinitionFormValues, EditControlMode } from './types';
@@ -43,17 +58,14 @@ export const EditControlContent = ({
   onClose,
   onSuccess,
 }: EditControlContentProps) => {
-  // Fetch agent data to get steps - React Query will dedupe requests
   const { data: agentResponse } = useAgent(agentId);
   const steps = agentResponse?.steps ?? [];
-  // API error state
+
   const [apiError, setApiError] = useState<ProblemDetail | null>(null);
-  // Errors that couldn't be mapped to form fields (shown in Alert)
   const [unmappedErrors, setUnmappedErrors] = useState<
     Array<{ field: string | null; message: string }>
   >([]);
 
-  // Mutation hooks
   const updateControl = useUpdateControl();
   const updateControlMetadata = useUpdateControlMetadata();
   const addControlToAgent = useAddControlToAgent();
@@ -63,14 +75,18 @@ export const EditControlContent = ({
     ? addControlToAgent.isPending
     : updateControl.isPending || updateControlMetadata.isPending;
 
-  // Track which evaluator the evaluator form has been initialized for
   const formInitializedForEvaluator = useRef<string>('');
+  const {
+    leafCondition,
+    evaluatorId,
+    evaluator,
+    canEditLeafCondition,
+    conditionEditingMessage,
+  } = useMemo(
+    () => getControlConditionState(control.control),
+    [control.control]
+  );
 
-  // Get evaluator for this control
-  const evaluatorId = control.control.evaluator.name || '';
-  const evaluator = useMemo(() => getEvaluator(evaluatorId), [evaluatorId]);
-
-  // Control definition form
   const definitionForm = useForm<ControlDefinitionFormValues>({
     initialValues: {
       name: '',
@@ -89,10 +105,12 @@ export const EditControlContent = ({
     validate: {
       name: (value) => (!value?.trim() ? 'Control name is required' : null),
       selector_path: (value) => {
+        if (!canEditLeafCondition) {
+          return null;
+        }
         if (!value?.trim()) {
           return 'Selector path is required';
         }
-        // Validate root field matches backend validation
         const validRoots = ['input', 'output', 'name', 'type', 'context', '*'];
         const root = value.split('.')[0];
         if (!validRoots.includes(root)) {
@@ -103,34 +121,53 @@ export const EditControlContent = ({
     },
   });
 
-  // Evaluator config form - dynamically configured based on evaluator
   const evaluatorForm = useForm({
     initialValues: evaluator?.initialValues ?? {},
     validate: evaluator?.validate,
   });
 
-  // Get config from evaluator form
-  // If form hasn't been initialized for current evaluator yet, use initial values to avoid crashes
-  const getEvaluatorConfig = () => {
-    if (!evaluator) return {};
+  const getEvaluatorConfig = useCallback(() => {
+    if (!leafCondition) {
+      return {};
+    }
+    if (!evaluator) {
+      return leafCondition.evaluatorConfig;
+    }
     if (formInitializedForEvaluator.current !== evaluatorId) {
       return evaluator.toConfig(evaluator.initialValues);
     }
     return evaluator.toConfig(evaluatorForm.values);
-  };
+  }, [evaluator, evaluatorForm.values, evaluatorId, leafCondition]);
 
-  // Sync JSON to form
-  const syncJsonToForm = (config: Record<string, unknown>) => {
-    if (evaluator) {
-      evaluatorForm.setValues(evaluator.fromConfig(config));
-    }
-  };
+  const syncJsonToForm = useCallback(
+    (config: Record<string, unknown>) => {
+      if (evaluator) {
+        evaluatorForm.setValues(evaluator.fromConfig(config));
+      }
+    },
+    [evaluator, evaluatorForm]
+  );
+
+  const buildCondition = useCallback(
+    (
+      values: ControlDefinitionFormValues,
+      finalConfig: Record<string, unknown>
+    ): ControlDefinition['condition'] => {
+      return buildEditableCondition(
+        control.control,
+        leafCondition,
+        values.selector_path.trim(),
+        finalConfig
+      );
+    },
+    [control.control, leafCondition]
+  );
 
   const buildControlDefinition = useCallback(
     (
       values: ControlDefinitionFormValues,
       finalConfig: Record<string, unknown>
-    ) => {
+    ): ControlDefinition => {
       const stepTypes = values.step_types
         .map((value) => value.trim())
         .filter(Boolean);
@@ -148,12 +185,11 @@ export const EditControlContent = ({
       if (values.stages.length > 0) scope.stages = values.stages;
 
       return {
-        ...control.control,
         description: values.description?.trim() || undefined,
         enabled: values.enabled,
         execution: values.execution,
         scope: Object.keys(scope).length > 0 ? scope : undefined,
-        selector: { ...control.control.selector, path: values.selector_path },
+        condition: buildCondition(values, finalConfig),
         action: {
           decision: values.action_decision,
           ...(values.action_decision === 'steer' &&
@@ -165,18 +201,18 @@ export const EditControlContent = ({
               }
             : {}),
         },
-        evaluator: { ...control.control.evaluator, config: finalConfig },
+        tags: control.control.tags,
       };
     },
-    [control.control]
+    [buildCondition, control.control.tags]
   );
 
   const buildDefinitionForValidation = useCallback(
-    (finalConfig: Record<string, unknown>) => ({
+    (finalConfig: Record<string, unknown>): ControlDefinition => ({
       ...control.control,
-      evaluator: { ...control.control.evaluator, config: finalConfig },
+      condition: buildCondition(definitionForm.values, finalConfig),
     }),
-    [control.control]
+    [buildCondition, control.control, definitionForm.values]
   );
 
   const validateEvaluatorConfig = useCallback(
@@ -198,9 +234,8 @@ export const EditControlContent = ({
     onValidateConfig: validateEvaluatorConfig,
   });
 
-  const { isJsonInvalid, reset } = evaluatorConfig;
+  const { reset } = evaluatorConfig;
 
-  // Clear steering_context when switching away from steer action
   useEffect(() => {
     if (definitionForm.values.action_decision !== 'steer') {
       definitionForm.setFieldValue('action_steering_context', '');
@@ -208,75 +243,85 @@ export const EditControlContent = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [definitionForm.values.action_decision]);
 
-  // Reset view mode and errors when evaluator changes
   useEffect(() => {
     reset();
     setApiError(null);
     setUnmappedErrors([]);
-  }, [reset, evaluatorId]);
+    formInitializedForEvaluator.current = '';
+  }, [reset, evaluatorId, control.id]);
 
-  // Load control data into forms
   useEffect(() => {
-    if (control && evaluator) {
-      const scope = control.control.scope ?? {};
-      const stepNamesValue = (scope.step_names ?? []).join(', ');
-      const stepRegexValue = scope.step_name_regex ?? '';
-      const stepNameMode =
-        stepRegexValue && !stepNamesValue ? 'regex' : 'names';
-      definitionForm.setValues({
-        name: control.name,
-        description: control.control.description ?? '',
-        enabled: control.control.enabled,
-        step_types: scope.step_types ?? [],
-        stages: scope.stages ?? [],
-        step_names: stepNamesValue,
-        step_name_regex: stepRegexValue,
-        step_name_mode: stepNameMode,
-        selector_path: control.control.selector.path ?? '*',
-        action_decision: control.control.action.decision,
-        action_steering_context:
-          control.control.action.decision === 'steer'
-            ? (control.control.action.steering_context?.message ?? '')
-            : '',
-        execution: control.control.execution ?? 'server',
-      });
+    const scope = control.control.scope ?? {};
+    const stepNamesValue = (scope.step_names ?? []).join(', ');
+    const stepRegexValue = scope.step_name_regex ?? '';
+    const stepNameMode = stepRegexValue && !stepNamesValue ? 'regex' : 'names';
+
+    definitionForm.setValues({
+      name: control.name,
+      description: control.control.description ?? '',
+      enabled: control.control.enabled,
+      step_types: scope.step_types ?? [],
+      stages: scope.stages ?? [],
+      step_names: stepNamesValue,
+      step_name_regex: stepRegexValue,
+      step_name_mode: stepNameMode,
+      selector_path: leafCondition?.selectorPath ?? '*',
+      action_decision: control.control.action.decision,
+      action_steering_context:
+        control.control.action.decision === 'steer'
+          ? (control.control.action.steering_context?.message ?? '')
+          : '',
+      execution: control.control.execution ?? 'server',
+    });
+
+    if (leafCondition && evaluator) {
       evaluatorForm.setValues(
-        evaluator.fromConfig(control.control.evaluator.config)
+        evaluator.fromConfig(leafCondition.evaluatorConfig)
       );
-      // Mark form as initialized for this evaluator
       formInitializedForEvaluator.current = evaluatorId;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [control, evaluator, evaluatorId]);
+  }, [control, evaluator, evaluatorId, leafCondition]);
 
-  // Handle form submission
   const handleSubmit = async (values: ControlDefinitionFormValues) => {
-    // Clear previous errors
     setApiError(null);
     setUnmappedErrors([]);
     definitionForm.clearErrors();
     evaluatorForm.clearErrors();
 
-    let finalConfig: Record<string, unknown>;
-
-    if (evaluatorConfig.configViewMode === 'json') {
-      const jsonConfig = evaluatorConfig.getJsonConfig();
-      if (!jsonConfig) return;
-      finalConfig = jsonConfig;
-    } else {
-      // Validate evaluator form
-      const validation = evaluatorForm.validate();
-      if (validation.hasErrors) return;
-      finalConfig = getEvaluatorConfig();
+    if (
+      values.action_decision === 'steer' &&
+      !leafCondition &&
+      !values.action_steering_context?.trim()
+    ) {
+      definitionForm.setFieldError(
+        'action_steering_context',
+        'Composite steer controls require steering context'
+      );
+      return;
     }
 
-    const definition = buildControlDefinition(
-      { ...values, name: values.name },
-      finalConfig
-    );
+    let finalConfig: Record<string, unknown> =
+      leafCondition?.evaluatorConfig ?? {};
+
+    if (canEditLeafCondition) {
+      if (evaluatorConfig.configViewMode === 'json') {
+        const jsonConfig = evaluatorConfig.getJsonConfig();
+        if (!jsonConfig) return;
+        finalConfig = jsonConfig;
+      } else {
+        const validation = evaluatorForm.validate();
+        if (validation.hasErrors) return;
+        finalConfig = getEvaluatorConfig();
+      }
+    }
+
+    const definition = buildControlDefinition(values, finalConfig);
 
     const runSave = async () => {
       try {
+        await validateControlDataAsync({ definition });
+
         if (isCreating) {
           await addControlToAgent.mutateAsync({
             agentId,
@@ -311,14 +356,12 @@ export const EditControlContent = ({
                     problemDetail.detail || 'Control name already exists'
                   );
                 } else if (problemDetail.status === 422) {
-                  // Mirror the main error-handling behavior so validation errors
-                  // render inline (and in the alert when unmapped).
                   setApiError(problemDetail);
                   if (problemDetail.errors) {
                     const unmapped = applyApiErrorsToForms(
                       problemDetail.errors,
                       definitionForm,
-                      evaluatorForm
+                      canEditLeafCondition ? evaluatorForm : null
                     );
                     setUnmappedErrors(
                       unmapped.map((e) => ({
@@ -361,8 +404,7 @@ export const EditControlContent = ({
             color: 'green',
           });
         }
-        // Call onSuccess first (which should close all modals)
-        // Only call onClose if onSuccess is not provided (for backward compatibility)
+
         if (onSuccess) {
           onSuccess();
         } else {
@@ -371,44 +413,43 @@ export const EditControlContent = ({
       } catch (error) {
         if (isApiError(error)) {
           const problemDetail = error.problemDetail;
-
-          // Check if this is a "name already exists" error (409 Conflict)
-          // and map it to the name field if it's not already in the errors array
           const isNameExistsError =
             (problemDetail.status === 409 ||
               problemDetail.error_code === 'CONTROL_NAME_CONFLICT') &&
-            !problemDetail.errors?.some((e) => e.field === 'name');
+            !problemDetail.errors?.some((item) => item.field === 'name');
 
           if (isNameExistsError) {
-            // Set error directly on the name field
             definitionForm.setFieldError(
               'name',
               problemDetail.detail || 'Control name already exists'
             );
-            // Don't show it in the alert since it's now on the field
             setApiError(null);
             setUnmappedErrors([]);
-          } else {
-            setApiError(problemDetail);
+            return;
+          }
 
-            if (problemDetail.errors) {
-              if (evaluatorConfig.configViewMode === 'form') {
-                const unmapped = applyApiErrorsToForms(
-                  problemDetail.errors,
-                  definitionForm,
-                  evaluatorForm
-                );
-                setUnmappedErrors(
-                  unmapped.map((e) => ({ field: e.field, message: e.message }))
-                );
-              } else {
-                setUnmappedErrors(
-                  problemDetail.errors.map((e) => ({
-                    field: e.field,
-                    message: e.message,
-                  }))
-                );
-              }
+          setApiError(problemDetail);
+
+          if (problemDetail.errors) {
+            if (evaluatorConfig.configViewMode === 'form') {
+              const unmapped = applyApiErrorsToForms(
+                problemDetail.errors,
+                definitionForm,
+                canEditLeafCondition ? evaluatorForm : null
+              );
+              setUnmappedErrors(
+                unmapped.map((e) => ({
+                  field: e.field,
+                  message: e.message,
+                }))
+              );
+            } else {
+              setUnmappedErrors(
+                problemDetail.errors.map((e) => ({
+                  field: e.field,
+                  message: e.message,
+                }))
+              );
             }
           }
         } else {
@@ -440,8 +481,7 @@ export const EditControlContent = ({
     });
   };
 
-  // Render the evaluator's form component
-  const FormComponent = evaluator?.FormComponent;
+  const formComponent = evaluator?.FormComponent;
 
   return (
     <Box>
@@ -468,22 +508,35 @@ export const EditControlContent = ({
 
         <Grid gutter="xl">
           <Grid.Col span={4}>
-            <ControlDefinitionForm form={definitionForm} steps={steps} />
+            <ControlDefinitionForm
+              form={definitionForm}
+              steps={steps}
+              disableSelectorPath={!canEditLeafCondition}
+            />
           </Grid.Col>
 
           <Grid.Col span={8}>
-            <EvaluatorConfigSection
-              config={evaluatorConfig}
-              evaluatorForm={evaluatorForm}
-              formComponent={FormComponent}
-              height={EVALUATOR_CONFIG_HEIGHT}
-              onConfigChange={syncJsonToForm}
-              onValidateConfig={validateEvaluatorConfig}
-            />
+            {canEditLeafCondition ? (
+              <EvaluatorConfigSection
+                config={evaluatorConfig}
+                evaluatorForm={evaluatorForm}
+                formComponent={formComponent}
+                height={EVALUATOR_CONFIG_HEIGHT}
+                onConfigChange={syncJsonToForm}
+                onValidateConfig={validateEvaluatorConfig}
+              />
+            ) : (
+              <Alert
+                color="blue"
+                variant="light"
+                title="Condition editing unavailable"
+              >
+                {conditionEditingMessage}
+              </Alert>
+            )}
           </Grid.Col>
         </Grid>
 
-        {/* API Error Alert */}
         {apiError ? (
           <>
             <Divider mt="xl" mb="md" />
@@ -495,7 +548,6 @@ export const EditControlContent = ({
           </>
         ) : null}
 
-        {/* Buttons */}
         <Divider mt="xl" mb="md" />
         <Group justify="flex-end">
           <Button
@@ -511,7 +563,6 @@ export const EditControlContent = ({
             type="submit"
             data-testid="save-button"
             loading={isPending}
-            disabled={isJsonInvalid}
           >
             Save
           </Button>

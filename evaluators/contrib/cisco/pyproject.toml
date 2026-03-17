@@ -41,4 +41,3 @@ select = ["E", "F", "I"]
 [tool.uv.sources]
 agent-control-evaluators = { path = "../../builtin", editable = true }
 agent-control-models = { path = "../../../models", editable = true }
-

@@ -17,13 +17,11 @@ from agent_control_evaluators import Evaluator, EvaluatorMetadata, register_eval
 from agent_control_models import (
     ControlAction,
     ControlDefinition,
-    ControlScope,
-    ControlSelector,
     EvaluationRequest,
     EvaluatorResult,
     EvaluatorSpec,
-    Step,
     SteeringContext,
+    Step,
 )
 from pydantic import BaseModel
 
@@ -142,6 +140,29 @@ class SlowEvaluator(Evaluator[SimpleConfig]):
         )
 
 
+class MetadataEvaluator(Evaluator[SimpleConfig]):
+    """Evaluator that emits structured metadata for propagation tests."""
+
+    metadata = EvaluatorMetadata(
+        name="test-metadata",
+        version="1.0.0",
+        description="Returns metadata while matching by config prefix",
+    )
+    config_model = SimpleConfig
+
+    async def evaluate(self, data: Any) -> EvaluatorResult:
+        _execution_log.append(f"metadata:{self.config.value}:start")
+        matched = self.config.value.startswith("match")
+        result = EvaluatorResult(
+            matched=matched,
+            confidence=0.8 if matched else 0.4,
+            message=f"Metadata {self.config.value}",
+            metadata={"source": self.config.value, "selected_data": data},
+        )
+        _execution_log.append(f"metadata:{self.config.value}:end")
+        return result
+
+
 @dataclass
 class MockControlWithIdentity:
     """Mock control for testing."""
@@ -158,7 +179,13 @@ def setup_test_evaluators():
     clear_evaluator_cache()
 
     # Register evaluators (may already be registered)
-    for evaluator_cls in [AllowEvaluator, DenyEvaluator, BlockerEvaluator, SlowEvaluator]:
+    for evaluator_cls in [
+        AllowEvaluator,
+        DenyEvaluator,
+        BlockerEvaluator,
+        SlowEvaluator,
+        MetadataEvaluator,
+    ]:
         try:
             register_evaluator(evaluator_cls)
         except ValueError:
@@ -210,11 +237,13 @@ def make_control(
             enabled=True,
             execution=execution,
             scope=scope,
-            selector=selector or {"path": "*"},
-            evaluator=EvaluatorSpec(
-                name=evaluator,
-                config={"value": config_value},
-            ),
+            condition={
+                "selector": selector or {"path": "*"},
+                "evaluator": EvaluatorSpec(
+                    name=evaluator,
+                    config={"value": config_value},
+                ),
+            },
             action=(
                 ControlAction(decision=action, steering_context=steering_context)
                 if steering_context
@@ -631,6 +660,41 @@ class TestErrorHandling:
         assert result.matches is None
         # Error should be captured
         assert result.errors is not None
+
+    @pytest.mark.asyncio
+    async def test_unexpected_condition_error_is_captured_as_control_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Unexpected traversal failures should surface as normal control errors."""
+        # Given: a deny control whose condition traversal raises unexpectedly
+        controls = [
+            make_control(1, "unexpected_error", "test-allow", action="deny", config_value="ok"),
+        ]
+        engine = ControlEngine(controls)
+
+        async def raise_unexpected(*_args: object, **_kwargs: object) -> object:
+            raise RuntimeError("unexpected traversal bug")
+
+        monkeypatch.setattr(engine, "_evaluate_condition", raise_unexpected)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the control is reported as an error instead of being silently dropped
+        assert result.is_safe is False
+        assert result.confidence == 0.0
+        assert result.matches is None
+        assert result.errors is not None
+        assert len(result.errors) == 1
+        assert result.errors[0].control_name == "unexpected_error"
+        assert result.errors[0].result.error is not None
+        assert "unexpected traversal bug" in result.errors[0].result.error
 
     @pytest.mark.asyncio
     async def test_missing_evaluator_error_sets_error_field(self):
@@ -1063,8 +1127,10 @@ class TestSelectorStepScoping:
                 enabled=True,
                 execution="server",
                 scope={"step_types": ["tool"], "stages": ["pre"], "step_name_regex": "("},
-                selector={"path": "input"},
-                evaluator=EvaluatorSpec(name="test-allow", config={"value": "x"}),
+                condition={
+                    "selector": {"path": "input"},
+                    "evaluator": EvaluatorSpec(name="test-allow", config={"value": "x"}),
+                },
                 action={"decision": "log"},
             )
 
@@ -1100,11 +1166,13 @@ class TestTimeoutEnforcement:
                     enabled=True,
                     execution="server",
                     scope={"step_types": ["llm"], "stages": ["pre"]},
-                    selector={"path": "input"},
-                    evaluator=EvaluatorSpec(
-                        name="test-timeout",
-                        config={"value": "t1", "timeout_ms": 100},
-                    ),
+                    condition={
+                        "selector": {"path": "input"},
+                        "evaluator": EvaluatorSpec(
+                            name="test-timeout",
+                            config={"value": "t1", "timeout_ms": 100},
+                        ),
+                    },
                     action={"decision": "deny"},
                 ),
             )
@@ -1158,11 +1226,13 @@ class TestTimeoutEnforcement:
                     enabled=True,
                     execution="server",
                     scope={"step_types": ["llm"], "stages": ["pre"]},
-                    selector={"path": "input"},
-                    evaluator=EvaluatorSpec(
-                        name="test-timeout",
-                        config={"value": "slow", "timeout_ms": 100},
-                    ),
+                    condition={
+                        "selector": {"path": "input"},
+                        "evaluator": EvaluatorSpec(
+                            name="test-timeout",
+                            config={"value": "slow", "timeout_ms": 100},
+                        ),
+                    },
                     action={"decision": "log"},  # Log, not deny - so fails open
                 ),
             ),
@@ -1267,6 +1337,437 @@ class TestConcurrencyLimit:
 
 
 # =============================================================================
+# Test: Recursive Condition Trees
+# =============================================================================
+
+
+class TestConditionTrees:
+    """Tests for recursive condition evaluation and trace metadata."""
+
+    @pytest.fixture(autouse=True)
+    def register_error_evaluator(self):
+        """Register ErrorEvaluator for these tests."""
+        try:
+            register_evaluator(ErrorEvaluator)
+        except ValueError:
+            pass
+
+    @pytest.mark.asyncio
+    async def test_or_short_circuit_records_skipped_trace(self):
+        """A matching OR child should short-circuit later children and mark them skipped."""
+        # Given: an OR tree whose first child matches
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="or_short_circuit",
+                control=ControlDefinition(
+                    description="Short-circuit OR",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "or": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-deny", "config": {"value": "match"}},
+                            },
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-slow", "config": {"value": "skip"}},
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: later children are short-circuited and marked skipped in the trace
+        assert result.matches is not None
+        assert len(result.matches) == 1
+        assert "slow:skip:start" not in _execution_log
+
+        trace = result.matches[0].result.metadata["condition_trace"]
+        assert trace["type"] == "or"
+        assert trace["matched"] is True
+        assert trace["short_circuit_reason"] == "or_matched"
+        assert trace["children"][0]["evaluated"] is True
+        assert trace["children"][0]["matched"] is True
+        assert trace["children"][1]["evaluated"] is False
+        assert trace["children"][1]["matched"] is None
+        assert trace["children"][1]["short_circuit_reason"] == "or_matched"
+
+    @pytest.mark.asyncio
+    async def test_composite_results_preserve_decisive_child_metadata(self):
+        """Composite results should retain structured metadata from the decisive child."""
+        # Given: an OR tree where the second child decides the result
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="or_metadata",
+                control=ControlDefinition(
+                    description="Preserve decisive metadata",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "or": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {
+                                    "name": "test-metadata",
+                                    "config": {"value": "miss-left"},
+                                },
+                            },
+                            {
+                                "selector": {"path": "output"},
+                                "evaluator": {
+                                    "name": "test-metadata",
+                                    "config": {"value": "match-right"},
+                                },
+                            },
+                            {
+                                "selector": {"path": "name"},
+                                "evaluator": {
+                                    "name": "test-slow",
+                                    "config": {"value": "skip-tail"},
+                                },
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output="chosen"),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the composite retains the metadata from the matching child
+        assert result.matches is not None
+        metadata = result.matches[0].result.metadata
+        assert metadata is not None
+        assert metadata["source"] == "match-right"
+        assert metadata["selected_data"] == "chosen"
+        assert metadata["condition_trace"]["type"] == "or"
+        assert "slow:skip-tail:start" not in _execution_log
+
+    @pytest.mark.asyncio
+    async def test_and_condition_all_children_match_records_full_trace(self):
+        """A fully-evaluated AND tree should record every child and produce a match."""
+        # Given: an AND tree where every leaf evaluator matches
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="and_all_match",
+                control=ControlDefinition(
+                    description="All AND children match",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "and": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-deny", "config": {"value": "first"}},
+                            },
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-deny", "config": {"value": "second"}},
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the control matches and every child appears as evaluated in the trace
+        assert result.matches is not None
+        assert len(result.matches) == 1
+        trace = result.matches[0].result.metadata["condition_trace"]
+        assert trace["type"] == "and"
+        assert trace["matched"] is True
+        assert "short_circuit_reason" not in trace
+        assert len(trace["children"]) == 2
+        assert all(child["evaluated"] is True for child in trace["children"])
+        assert "deny:first:end" in _execution_log
+        assert "deny:second:end" in _execution_log
+
+    @pytest.mark.asyncio
+    async def test_not_condition_inverts_child_result(self):
+        """NOT should invert the child match result while preserving trace structure."""
+        # Given: a NOT tree whose child returns non-match
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="not_condition",
+                control=ControlDefinition(
+                    description="Invert non-match",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "not": {
+                            "selector": {"path": "input"},
+                            "evaluator": {"name": "test-allow", "config": {"value": "child"}},
+                        }
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the NOT node inverts the child result and preserves trace structure
+        assert result.matches is not None
+        trace = result.matches[0].result.metadata["condition_trace"]
+        assert trace["type"] == "not"
+        assert trace["matched"] is True
+        assert len(trace["children"]) == 1
+        assert trace["children"][0]["type"] == "leaf"
+        assert trace["children"][0]["matched"] is False
+
+    @pytest.mark.asyncio
+    async def test_not_condition_propagates_child_error_trace(self):
+        """NOT should surface child evaluator failures as composite errors."""
+        # Given: a NOT tree whose child evaluator raises an error
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="not_error",
+                control=ControlDefinition(
+                    description="Invert errored child",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "not": {
+                            "selector": {"path": "input"},
+                            "evaluator": {"name": "test-error", "config": {"value": "boom"}},
+                        }
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the composite returns an error result and preserves the child trace
+        assert result.errors is not None
+        assert len(result.errors) == 1
+        trace = result.errors[0].result.metadata["condition_trace"]
+        assert trace["type"] == "not"
+        assert trace["matched"] is None
+        assert len(trace["children"]) == 1
+        assert trace["children"][0]["evaluated"] is True
+        assert "Intentional error from boom" in trace["children"][0]["error"]
+
+    @pytest.mark.asyncio
+    async def test_or_condition_all_children_non_match_records_full_trace(self):
+        """A fully-evaluated OR tree should record every child and produce a non-match."""
+        # Given: an OR tree where every leaf evaluator returns non-match
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="or_all_non_match",
+                control=ControlDefinition(
+                    description="All OR children miss",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "or": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-allow", "config": {"value": "first"}},
+                            },
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-allow", "config": {"value": "second"}},
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the control is recorded as a non-match and every child is evaluated
+        assert result.non_matches is not None
+        assert len(result.non_matches) == 1
+        trace = result.non_matches[0].result.metadata["condition_trace"]
+        assert trace["type"] == "or"
+        assert trace["matched"] is False
+        assert "short_circuit_reason" not in trace
+        assert len(trace["children"]) == 2
+        assert all(child["evaluated"] is True for child in trace["children"])
+        assert "allow:first:end" in _execution_log
+        assert "allow:second:end" in _execution_log
+
+    @pytest.mark.asyncio
+    async def test_and_error_records_skipped_children_in_trace(self):
+        """Errors in composite conditions should preserve trace context for skipped branches."""
+        # Given: an AND tree whose first child evaluator errors
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="and_error",
+                control=ControlDefinition(
+                    description="Error in AND",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "and": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-error", "config": {"value": "boom"}},
+                            },
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-slow", "config": {"value": "skip"}},
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the trace preserves the erroring child and marks remaining children skipped
+        assert result.errors is not None
+        assert len(result.errors) == 1
+        assert "slow:skip:start" not in _execution_log
+
+        trace = result.errors[0].result.metadata["condition_trace"]
+        assert trace["type"] == "and"
+        assert trace["matched"] is None
+        assert trace["short_circuit_reason"] == "error"
+        assert result.errors[0].result.message.startswith(
+            "Condition evaluation aborted due to a child evaluator error:"
+        )
+        assert trace["children"][0]["evaluated"] is True
+        assert "Intentional error from boom" in trace["children"][0]["error"]
+        assert trace["children"][1]["evaluated"] is False
+        assert trace["children"][1]["short_circuit_reason"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_or_error_records_skipped_children_in_trace(self):
+        """OR error traces should be marked indeterminate, not as a definitive non-match."""
+        # Given: an OR tree whose first child evaluator errors
+        controls = [
+            MockControlWithIdentity(
+                id=1,
+                name="or_error",
+                control=ControlDefinition(
+                    description="Error in OR",
+                    enabled=True,
+                    execution="server",
+                    scope={"step_types": ["llm"], "stages": ["pre"]},
+                    condition={
+                        "or": [
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-error", "config": {"value": "boom"}},
+                            },
+                            {
+                                "selector": {"path": "input"},
+                                "evaluator": {"name": "test-allow", "config": {"value": "skip"}},
+                            },
+                        ]
+                    },
+                    action={"decision": "log"},
+                ),
+            )
+        ]
+        engine = ControlEngine(controls)
+
+        # When: processing the request
+        request = EvaluationRequest(
+            agent_name="00000000-0000-0000-0000-000000000001",
+            step=Step(type="llm", name="test-step", input="test", output=None),
+            stage="pre",
+        )
+        result = await engine.process(request)
+
+        # Then: the trace preserves the erroring child and marks remaining children skipped
+        assert result.errors is not None
+        assert len(result.errors) == 1
+        assert "allow:skip:end" not in _execution_log
+
+        trace = result.errors[0].result.metadata["condition_trace"]
+        assert trace["type"] == "or"
+        assert trace["matched"] is None
+        assert trace["short_circuit_reason"] == "error"
+        assert result.errors[0].result.message.startswith(
+            "Condition evaluation aborted due to a child evaluator error:"
+        )
+        assert trace["children"][0]["evaluated"] is True
+        assert "Intentional error from boom" in trace["children"][0]["error"]
+        assert trace["children"][1]["evaluated"] is False
+        assert trace["children"][1]["short_circuit_reason"] == "error"
+
+
+# =============================================================================
 # Test: Context Filtering (local vs server)
 # =============================================================================
 
@@ -1304,11 +1805,13 @@ def make_control_with_execution(
             enabled=True,
             execution=execution,
             scope=scope,
-            selector={"path": path},
-            evaluator=EvaluatorSpec(
-                name=evaluator,
-                config={"value": config_value},
-            ),
+            condition={
+                "selector": {"path": path},
+                "evaluator": EvaluatorSpec(
+                    name=evaluator,
+                    config={"value": config_value},
+                ),
+            },
             action={"decision": action},
         ),
     )
@@ -1802,10 +2305,12 @@ class TestInvalidRegexHandling:
                 "step_types": ["llm"],
                 "step_name_regex": "[invalid(regex",  # Invalid regex pattern
             },
-            "selector": {"path": "input"},
-            "evaluator": {
-                "name": "test-allow",
-                "config": {"value": "test"},
+            "condition": {
+                "selector": {"path": "input"},
+                "evaluator": {
+                    "name": "test-allow",
+                    "config": {"value": "test"},
+                },
             },
             "action": {"decision": "deny"},
         }

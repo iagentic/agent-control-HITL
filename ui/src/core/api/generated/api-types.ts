@@ -4,6 +4,73 @@
  */
 
 export interface paths {
+  '/api/config': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * UI configuration
+     * @description Return configuration flags that drive UI behavior.
+     *
+     *     If authentication is enabled, this also reports whether the current
+     *     request has an active session (via header or cookie), allowing the UI
+     *     to skip the login prompt on refresh when a valid cookie is present.
+     */
+    get: operations['get_config_api_config_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/login': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Login with API key
+     * @description Validate an API key and issue a signed JWT session cookie.
+     *
+     *     The raw API key is transmitted only in this single request and is never
+     *     stored in the cookie.  Subsequent requests authenticate via the JWT.
+     */
+    post: operations['login_api_login_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Logout (clear session cookie)
+     * @description Clear the session cookie.
+     */
+    post: operations['logout_api_logout_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/agents': {
     parameters: {
       query?: never;
@@ -62,7 +129,7 @@ export interface paths {
      *         db: Database session (injected)
      *
      *     Returns:
-     *         InitAgentResponse with created flag and active controls (if policy assigned)
+     *         InitAgentResponse with created flag and active controls (policy-derived + direct)
      */
     post: operations['init_agent_api_v1_agents_initAgent_post'];
     delete?: never;
@@ -1067,6 +1134,12 @@ export interface components {
       success: boolean;
     };
     /**
+     * AuthMode
+     * @description Authentication mode advertised to the UI.
+     * @enum {string}
+     */
+    AuthMode: 'none' | 'api-key';
+    /**
      * BatchEventsRequest
      * @description Request model for batch event ingestion.
      *
@@ -1133,6 +1206,154 @@ export interface components {
       status: 'queued' | 'partial' | 'failed';
     };
     /**
+     * ConditionNode
+     * @description Recursive boolean condition tree for control evaluation.
+     * @example {
+     *       "evaluator": {
+     *         "config": {
+     *           "pattern": "\\d{3}-\\d{2}-\\d{4}"
+     *         },
+     *         "name": "regex"
+     *       },
+     *       "selector": {
+     *         "path": "output"
+     *       }
+     *     }
+     * @example {
+     *       "and": [
+     *         {
+     *           "evaluator": {
+     *             "config": {
+     *               "values": [
+     *                 "high",
+     *                 "critical"
+     *               ]
+     *             },
+     *             "name": "list"
+     *           },
+     *           "selector": {
+     *             "path": "context.risk_level"
+     *           }
+     *         },
+     *         {
+     *           "not": {
+     *             "evaluator": {
+     *               "config": {
+     *                 "values": [
+     *                   "admin",
+     *                   "security"
+     *                 ]
+     *               },
+     *               "name": "list"
+     *             },
+     *             "selector": {
+     *               "path": "context.user_role"
+     *             }
+     *           }
+     *         }
+     *       ]
+     *     }
+     */
+    'ConditionNode-Input': {
+      /**
+       * And
+       * @description Logical AND over child conditions.
+       */
+      and?: components['schemas']['ConditionNode-Input'][] | null;
+      /** @description Leaf evaluator. Must be provided together with selector. */
+      evaluator?: components['schemas']['EvaluatorSpec'] | null;
+      /** @description Logical NOT over a single child condition. */
+      not?: components['schemas']['ConditionNode-Input'] | null;
+      /**
+       * Or
+       * @description Logical OR over child conditions.
+       */
+      or?: components['schemas']['ConditionNode-Input'][] | null;
+      /** @description Leaf selector. Must be provided together with evaluator. */
+      selector?: components['schemas']['ControlSelector'] | null;
+    };
+    /**
+     * ConditionNode
+     * @description Recursive boolean condition tree for control evaluation.
+     * @example {
+     *       "evaluator": {
+     *         "config": {
+     *           "pattern": "\\d{3}-\\d{2}-\\d{4}"
+     *         },
+     *         "name": "regex"
+     *       },
+     *       "selector": {
+     *         "path": "output"
+     *       }
+     *     }
+     * @example {
+     *       "and": [
+     *         {
+     *           "evaluator": {
+     *             "config": {
+     *               "values": [
+     *                 "high",
+     *                 "critical"
+     *               ]
+     *             },
+     *             "name": "list"
+     *           },
+     *           "selector": {
+     *             "path": "context.risk_level"
+     *           }
+     *         },
+     *         {
+     *           "not": {
+     *             "evaluator": {
+     *               "config": {
+     *                 "values": [
+     *                   "admin",
+     *                   "security"
+     *                 ]
+     *               },
+     *               "name": "list"
+     *             },
+     *             "selector": {
+     *               "path": "context.user_role"
+     *             }
+     *           }
+     *         }
+     *       ]
+     *     }
+     */
+    'ConditionNode-Output': {
+      /**
+       * And
+       * @description Logical AND over child conditions.
+       */
+      and?: components['schemas']['ConditionNode-Output'][] | null;
+      /** @description Leaf evaluator. Must be provided together with selector. */
+      evaluator?: components['schemas']['EvaluatorSpec'] | null;
+      /** @description Logical NOT over a single child condition. */
+      not?: components['schemas']['ConditionNode-Output'] | null;
+      /**
+       * Or
+       * @description Logical OR over child conditions.
+       */
+      or?: components['schemas']['ConditionNode-Output'][] | null;
+      /** @description Leaf selector. Must be provided together with evaluator. */
+      selector?: components['schemas']['ControlSelector'] | null;
+    };
+    /**
+     * ConfigResponse
+     * @description Configuration surface exposed to the UI.
+     */
+    ConfigResponse: {
+      auth_mode: components['schemas']['AuthMode'];
+      /**
+       * Has Active Session
+       * @default false
+       */
+      has_active_session: boolean;
+      /** Requires Api Key */
+      requires_api_key: boolean;
+    };
+    /**
      * ConflictMode
      * @description Conflict handling mode for initAgent registration updates.
      *
@@ -1179,14 +1400,19 @@ export interface components {
      *       "action": {
      *         "decision": "deny"
      *       },
+     *       "condition": {
+     *         "evaluator": {
+     *           "config": {
+     *             "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+     *           },
+     *           "name": "regex"
+     *         },
+     *         "selector": {
+     *           "path": "output"
+     *         }
+     *       },
      *       "description": "Block outputs containing US Social Security Numbers",
      *       "enabled": true,
-     *       "evaluator": {
-     *         "config": {
-     *           "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b"
-     *         },
-     *         "name": "regex"
-     *       },
      *       "execution": "server",
      *       "scope": {
      *         "stages": [
@@ -1195,9 +1421,6 @@ export interface components {
      *         "step_types": [
      *           "llm"
      *         ]
-     *       },
-     *       "selector": {
-     *         "path": "output"
      *       },
      *       "tags": [
      *         "pii",
@@ -1208,6 +1431,8 @@ export interface components {
     'ControlDefinition-Input': {
       /** @description What action to take when control matches */
       action: components['schemas']['ControlAction'];
+      /** @description Recursive boolean condition tree. Leaf nodes contain selector + evaluator; composite nodes contain and/or/not. */
+      condition: components['schemas']['ConditionNode-Input'];
       /**
        * Description
        * @description Detailed description of the control
@@ -1219,8 +1444,6 @@ export interface components {
        * @default true
        */
       enabled: boolean;
-      /** @description How to evaluate the selected data */
-      evaluator: components['schemas']['EvaluatorSpec'];
       /**
        * Execution
        * @description Where this control executes
@@ -1229,8 +1452,6 @@ export interface components {
       execution: 'server' | 'sdk';
       /** @description Which steps and stages this control applies to */
       scope?: components['schemas']['ControlScope'];
-      /** @description What data to select from the payload */
-      selector: components['schemas']['ControlSelector'];
       /**
        * Tags
        * @description Tags for categorization
@@ -1247,14 +1468,19 @@ export interface components {
      *       "action": {
      *         "decision": "deny"
      *       },
+     *       "condition": {
+     *         "evaluator": {
+     *           "config": {
+     *             "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b"
+     *           },
+     *           "name": "regex"
+     *         },
+     *         "selector": {
+     *           "path": "output"
+     *         }
+     *       },
      *       "description": "Block outputs containing US Social Security Numbers",
      *       "enabled": true,
-     *       "evaluator": {
-     *         "config": {
-     *           "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b"
-     *         },
-     *         "name": "regex"
-     *       },
      *       "execution": "server",
      *       "scope": {
      *         "stages": [
@@ -1263,9 +1489,6 @@ export interface components {
      *         "step_types": [
      *           "llm"
      *         ]
-     *       },
-     *       "selector": {
-     *         "path": "output"
      *       },
      *       "tags": [
      *         "pii",
@@ -1276,6 +1499,8 @@ export interface components {
     'ControlDefinition-Output': {
       /** @description What action to take when control matches */
       action: components['schemas']['ControlAction'];
+      /** @description Recursive boolean condition tree. Leaf nodes contain selector + evaluator; composite nodes contain and/or/not. */
+      condition: components['schemas']['ConditionNode-Output'];
       /**
        * Description
        * @description Detailed description of the control
@@ -1287,8 +1512,6 @@ export interface components {
        * @default true
        */
       enabled: boolean;
-      /** @description How to evaluate the selected data */
-      evaluator: components['schemas']['EvaluatorSpec'];
       /**
        * Execution
        * @description Where this control executes
@@ -1297,8 +1520,6 @@ export interface components {
       execution: 'server' | 'sdk';
       /** @description Which steps and stages this control applies to */
       scope?: components['schemas']['ControlScope'];
-      /** @description What data to select from the payload */
-      selector: components['schemas']['ControlSelector'];
       /**
        * Tags
        * @description Tags for categorization
@@ -2620,6 +2841,24 @@ export interface components {
       pagination: components['schemas']['PaginationInfo'];
     };
     /**
+     * LoginRequest
+     * @description Request body for the /login endpoint.
+     */
+    LoginRequest: {
+      /** Api Key */
+      api_key: string;
+    };
+    /**
+     * LoginResponse
+     * @description Response body for the /login endpoint.
+     */
+    LoginResponse: {
+      /** Authenticated */
+      authenticated: boolean;
+      /** Is Admin */
+      is_admin: boolean;
+    };
+    /**
      * PaginationInfo
      * @description Pagination metadata for cursor-based pagination.
      */
@@ -3116,6 +3355,77 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  get_config_api_config_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Configuration flags for UI behavior */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConfigResponse'];
+        };
+      };
+    };
+  };
+  login_api_login_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoginRequest'];
+      };
+    };
+    responses: {
+      /** @description Authentication result; sets HttpOnly session cookie on success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['LoginResponse'];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HTTPValidationError'];
+        };
+      };
+    };
+  };
+  logout_api_logout_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   list_agents_api_v1_agents_get: {
     parameters: {
       query?: {

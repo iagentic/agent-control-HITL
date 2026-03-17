@@ -81,10 +81,12 @@ def make_control_dict(
             "enabled": enabled,
             "execution": execution,
             "scope": scope,
-            "selector": {"path": path},
-            "evaluator": {
-                "name": evaluator,
-                "config": {"pattern": pattern},
+            "condition": {
+                "selector": {"path": path},
+                "evaluator": {
+                    "name": evaluator,
+                    "config": {"pattern": pattern},
+                },
             },
             "action": {"decision": action},
         },
@@ -408,6 +410,42 @@ class TestCheckEvaluationWithLocal:
         mock_process.assert_not_called()
         client.http_client.post.assert_called_once()
         assert result.is_safe is True
+
+    @pytest.mark.asyncio
+    async def test_local_legacy_flat_control_executes_locally(self, agent_name, llm_payload):
+        """Legacy flat selector/evaluator controls should still execute in the SDK."""
+        controls = [
+            {
+                "id": 1,
+                "name": "legacy_local_ctrl",
+                "control": {
+                    "description": "Legacy local control",
+                    "enabled": True,
+                    "execution": "sdk",
+                    "scope": {"step_types": ["llm"], "stages": ["pre"]},
+                    "selector": {"path": "input"},
+                    "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    "action": {"decision": "deny"},
+                },
+            }
+        ]
+        client = MagicMock(spec=AgentControlClient)
+        client.http_client = AsyncMock()
+        client.http_client.post = AsyncMock()
+
+        result = await check_evaluation_with_local(
+            client=client,
+            agent_name=agent_name,
+            step=llm_payload,
+            stage="pre",
+            controls=controls,
+        )
+
+        client.http_client.post.assert_not_called()
+        assert result.is_safe is False
+        assert result.matches is not None
+        assert len(result.matches) == 1
+        assert result.matches[0].control_name == "legacy_local_ctrl"
 
     @pytest.mark.asyncio
     async def test_local_deny_short_circuits(self, agent_name, llm_payload):
@@ -920,8 +958,10 @@ class TestCheckEvaluationWithLocal:
                     "enabled": True,
                     "execution": "sdk",
                     "scope": {"step_types": ["llm"], "stages": ["pre"]},
-                    "selector": {"path": "input"},
-                    "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    "condition": {
+                        "selector": {"path": "input"},
+                        "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    },
                     "action": {
                         "decision": "steer",
                         "steering_context": {

@@ -14,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
+from agent_control_models import ConditionNode
 from agent_control_server.db import get_async_db
 from agent_control_server.models import Control
 
@@ -657,7 +658,7 @@ def test_set_control_data_agent_scoped_agent_not_found(client: TestClient) -> No
 
     # When: setting data with a missing agent in evaluator ref
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": "missing-agent:custom", "config": {"pattern": "x"}}
+    payload["condition"]["evaluator"] = {"name": "missing-agent:custom", "config": {"pattern": "x"}}
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
 
     # Then: not found
@@ -681,7 +682,7 @@ def test_set_control_data_agent_scoped_evaluator_missing(client: TestClient) -> 
 
     control_id, _ = _create_control(client)
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": f"{agent_name}:missing", "config": {"pattern": "x"}}
+    payload["condition"]["evaluator"] = {"name": f"{agent_name}:missing", "config": {"pattern": "x"}}
 
     # When: setting data with evaluator not registered on agent
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -690,7 +691,7 @@ def test_set_control_data_agent_scoped_evaluator_missing(client: TestClient) -> 
     assert resp.status_code == 422
     body = resp.json()
     assert body["error_code"] == "EVALUATOR_NOT_FOUND"
-    assert any(err.get("field") == "data.evaluator.name" for err in body.get("errors", []))
+    assert any(err.get("field") == "data.condition.evaluator.name" for err in body.get("errors", []))
 
 
 def test_set_control_data_agent_scoped_invalid_schema(client: TestClient) -> None:
@@ -719,7 +720,7 @@ def test_set_control_data_agent_scoped_invalid_schema(client: TestClient) -> Non
 
     control_id, _ = _create_control(client)
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": f"{agent_name}:custom", "config": {}}
+    payload["condition"]["evaluator"] = {"name": f"{agent_name}:custom", "config": {}}
 
     # When: setting data with config missing required fields
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -728,7 +729,7 @@ def test_set_control_data_agent_scoped_invalid_schema(client: TestClient) -> Non
     assert resp.status_code == 422
     body = resp.json()
     assert body["error_code"] == "INVALID_CONFIG"
-    assert any(err.get("field") == "data.evaluator.config" for err in body.get("errors", []))
+    assert any(err.get("field") == "data.condition.evaluator.config" for err in body.get("errors", []))
 
 
 def test_patch_control_updates_name_and_enabled(client: TestClient) -> None:
@@ -805,7 +806,7 @@ def test_set_control_data_agent_scoped_corrupted_agent_data_returns_422(
 
     control_id, _ = _create_control(client)
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": f"{agent_name}:custom", "config": {}}
+    payload["condition"]["evaluator"] = {"name": f"{agent_name}:custom", "config": {}}
 
     # When: setting control data referencing the corrupted agent's evaluator
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -819,7 +820,7 @@ def test_set_control_data_unknown_evaluator_allowed(client: TestClient) -> None:
     # Given: a control with a non-registered evaluator name
     control_id, _ = _create_control(client)
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": "unknown-eval", "config": {}}
+    payload["condition"]["evaluator"] = {"name": "unknown-eval", "config": {}}
 
     # When: setting the control data
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -845,7 +846,7 @@ def test_set_control_data_builtin_evaluator_validation_error(
     )
 
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": "dummy", "config": {}}
+    payload["condition"]["evaluator"] = {"name": "dummy", "config": {}}
 
     # When: setting control data with invalid config
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -854,7 +855,10 @@ def test_set_control_data_builtin_evaluator_validation_error(
     assert resp.status_code == 422
     body = resp.json()
     assert body["error_code"] == "INVALID_CONFIG"
-    assert any("data.evaluator.config" in err.get("field", "") for err in body.get("errors", []))
+    assert any(
+        "data.condition.evaluator.config" in err.get("field", "")
+        for err in body.get("errors", [])
+    )
 
 
 def test_set_control_data_builtin_evaluator_invalid_parameters(
@@ -875,7 +879,7 @@ def test_set_control_data_builtin_evaluator_invalid_parameters(
     )
 
     payload = deepcopy(VALID_CONTROL_PAYLOAD)
-    payload["evaluator"] = {"name": "dummy", "config": {"unexpected": "value"}}
+    payload["condition"]["evaluator"] = {"name": "dummy", "config": {"unexpected": "value"}}
 
     # When: setting control data with invalid parameters
     resp = client.put(f"/api/v1/controls/{control_id}/data", json={"data": payload})
@@ -906,11 +910,7 @@ async def test_set_control_data_selector_without_model_dump_uses_original_serial
     class DummyData:
         def __init__(self, data: dict[str, object]) -> None:
             self._data = data
-            self.selector = data["selector"]
-            self.evaluator = SimpleNamespace(
-                name=data["evaluator"]["name"],
-                config=data["evaluator"]["config"],
-            )
+            self.condition = ConditionNode.model_validate(data["condition"])
 
         def model_dump(self, *args: object, **kwargs: object) -> dict[str, object]:
             return self._data
@@ -923,7 +923,7 @@ async def test_set_control_data_selector_without_model_dump_uses_original_serial
     # Then: the update succeeds and uses the original selector serialization
     assert response.success is True
     await async_db.refresh(control)
-    assert control.data["selector"] == payload["selector"]
+    assert control.data["condition"] == payload["condition"]
 
 
 def test_patch_control_rename_preserves_enabled(client: TestClient) -> None:

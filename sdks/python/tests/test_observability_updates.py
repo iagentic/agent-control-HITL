@@ -1,13 +1,16 @@
 """Tests for observability updates: event emission, non_matches propagation, applies_to mapping."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID
 
 import pytest
-
 from agent_control import evaluation
-from agent_control.evaluation import _map_applies_to, _merge_results
-
+from agent_control.evaluation import (
+    _ControlAdapter,
+    _emit_local_events,
+    _map_applies_to,
+    _merge_results,
+)
+from agent_control_models import ControlDefinition
 
 # =============================================================================
 # _map_applies_to tests
@@ -111,13 +114,12 @@ class TestEmitLocalEvents:
 
     def _make_control_adapter(self, id, name, evaluator_name="regex", selector_path="input"):
         """Create a _ControlAdapter for testing."""
-        from agent_control.evaluation import _ControlAdapter
-        from agent_control_models import ControlDefinition
-
         control_def = ControlDefinition(
             execution="sdk",
-            evaluator={"name": evaluator_name, "config": {"pattern": "test"}},
-            selector={"path": selector_path},
+            condition={
+                "evaluator": {"name": evaluator_name, "config": {"pattern": "test"}},
+                "selector": {"path": selector_path},
+            },
             action={"decision": "deny"},
         )
         return _ControlAdapter(id=id, name=name, control=control_def)
@@ -247,6 +249,55 @@ class TestEmitLocalEvents:
             mock_logger.warning.assert_called_once()
             assert "fallback" in mock_logger.warning.call_args[0][0].lower()
 
+    def test_composite_control_emits_representative_leaf_metadata(self):
+        """Composite local controls should emit stable representative metadata."""
+        # Given: a composite local control and a non-match response for that control
+        ctrl = _ControlAdapter(
+            id=1,
+            name="composite-ctrl",
+            control=ControlDefinition(
+                execution="sdk",
+                condition={
+                    "and": [
+                        {
+                            "selector": {"path": "input"},
+                            "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                        },
+                        {
+                            "selector": {"path": "output"},
+                            "evaluator": {"name": "regex", "config": {"pattern": "done"}},
+                        },
+                    ]
+                },
+                action={"decision": "allow"},
+            ),
+        )
+        non_match = self._make_match(1, "composite-ctrl", action="allow", matched=False)
+        response = self._make_response(non_matches=[non_match])
+        request = self._make_request()
+
+        # When: emitting local observability events
+        with patch("agent_control.evaluation.is_observability_enabled", return_value=True), \
+             patch("agent_control.evaluation.add_event") as mock_add:
+            _emit_local_events(
+                response,
+                request,
+                [ctrl],
+                "trace123",
+                "span456",
+                "test-agent",
+            )
+            event = mock_add.call_args_list[0][0][0]
+
+        # Then: the first leaf becomes the event identity and full context is preserved
+        assert event.evaluator_name == "regex"
+        assert event.selector_path == "input"
+        assert event.metadata["primary_evaluator"] == "regex"
+        assert event.metadata["primary_selector_path"] == "input"
+        assert event.metadata["leaf_count"] == 2
+        assert event.metadata["all_evaluators"] == ["regex"]
+        assert event.metadata["all_selector_paths"] == ["input", "output"]
+
     def test_fallback_warning_logged_only_once(self):
         """The missing-trace-context warning should fire only on the first call."""
         import agent_control.evaluation as eval_mod
@@ -307,8 +358,10 @@ class TestCheckEvaluationWithLocal:
             "id": 1,
             "name": "test-ctrl",
             "control": {
-                "evaluator": {"name": "regex", "config": {"pattern": "test"}},
-                "selector": {"path": "input"},
+                "condition": {
+                    "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    "selector": {"path": "input"},
+                },
                 "action": {"decision": "allow"},
                 "execution": "sdk",
             },
@@ -359,8 +412,10 @@ class TestCheckEvaluationWithLocal:
             "id": 1,
             "name": "test-ctrl",
             "control": {
-                "evaluator": {"name": "regex", "config": {"pattern": "test"}},
-                "selector": {"path": "input"},
+                "condition": {
+                    "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    "selector": {"path": "input"},
+                },
                 "action": {"decision": "allow"},
                 "execution": "sdk",
             },
@@ -396,8 +451,10 @@ class TestCheckEvaluationWithLocal:
             "id": 1,
             "name": "server-ctrl",
             "control": {
-                "evaluator": {"name": "regex", "config": {"pattern": "test"}},
-                "selector": {"path": "input"},
+                "condition": {
+                    "evaluator": {"name": "regex", "config": {"pattern": "test"}},
+                    "selector": {"path": "input"},
+                },
                 "action": {"decision": "deny"},
                 "execution": "server",
             },
@@ -447,7 +504,7 @@ class TestControlDecoratorsNonMatches:
     @pytest.mark.asyncio
     async def test_non_matches_populated_in_stats(self):
         """non_matches should be properly converted to dicts for stats tracking."""
-        from agent_control.control_decorators import ControlContext, _log_control_evaluations
+        from agent_control.control_decorators import ControlContext
 
         # Simulate a result dict with non_matches
         result = {

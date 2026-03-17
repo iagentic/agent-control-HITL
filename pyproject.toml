@@ -66,6 +66,7 @@ ignore_missing_imports = true
 version_toml = [
     "pyproject.toml:project.version",
     "models/pyproject.toml:project.version",
+    "engine/pyproject.toml:project.version",
     "sdks/python/pyproject.toml:project.version",
     "server/pyproject.toml:project.version",
     "evaluators/builtin/pyproject.toml:project.version",
