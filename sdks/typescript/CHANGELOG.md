@@ -1,3 +1,31 @@
+## [2.0.0](https://github.com/agentcontrol/agent-control/compare/ts-sdk-v1.1.0...ts-sdk-v2.0.0) (2026-03-18)
+
+### ⚠ BREAKING CHANGES
+
+* **server:** implement recursive control condition trees (#115)
+
+### Features
+
+* **docs:** simplify main README quick start v2 ([#100](https://github.com/agentcontrol/agent-control/issues/100)) ([7701c65](https://github.com/agentcontrol/agent-control/commit/7701c65a49ad2a927b965122224e286784feb554))
+* **docs:** Update README.md to accurately mention Strands Agents SDK ([#105](https://github.com/agentcontrol/agent-control/issues/105)) ([84dfa57](https://github.com/agentcontrol/agent-control/commit/84dfa57edd0020da147942e06bff065384bdcead))
+* **evaluators:** add Cisco AI Defense evaluator and examples ([#60](https://github.com/agentcontrol/agent-control/issues/60)) ([52e2416](https://github.com/agentcontrol/agent-control/commit/52e241657103f90ba4a6a54fefd68836db36fd16))
+* **sdk:** add Google ADK framework integration ([#83](https://github.com/agentcontrol/agent-control/issues/83)) ([f2b53ee](https://github.com/agentcontrol/agent-control/commit/f2b53eeb115bd9f178b00728604ec9f90211e283))
+* **server:** implement recursive control condition trees ([#115](https://github.com/agentcontrol/agent-control/issues/115)) ([2ff4c12](https://github.com/agentcontrol/agent-control/commit/2ff4c121723c1a304fecfd2e179e4b6f4c71af2b))
+
+### Bug Fixes
+
+* **docs:** clarify README quickstart flow ([#119](https://github.com/agentcontrol/agent-control/issues/119)) ([317c626](https://github.com/agentcontrol/agent-control/commit/317c6267812f4887bad8ca8742365c235809f60d))
+* **docs:** cleanup readme ([#66](https://github.com/agentcontrol/agent-control/issues/66)) ([eca0d6b](https://github.com/agentcontrol/agent-control/commit/eca0d6b621f29f61cb6a87d04aae95f6e51ec454))
+* **docs:** promote Google ADK plugin in README ([#99](https://github.com/agentcontrol/agent-control/issues/99)) ([f038aa4](https://github.com/agentcontrol/agent-control/commit/f038aa4cc048e331f59fa4bcc6df0c266f14953e))
+* **evaluators:** address Cisco AI Defense review issues ([#103](https://github.com/agentcontrol/agent-control/issues/103)) ([81da81b](https://github.com/agentcontrol/agent-control/commit/81da81bdab5b1a8d3ca4904b8cd9e4ed4843a5ba))
+* **examples:** shut down SDK in short-lived demos ([#85](https://github.com/agentcontrol/agent-control/issues/85)) ([df43264](https://github.com/agentcontrol/agent-control/commit/df432644ac14d27d10442779532ed98a0263ea88))
+* **sdk:** fail closed on post-hook evaluation errors ([#114](https://github.com/agentcontrol/agent-control/issues/114)) ([67f8fc1](https://github.com/agentcontrol/agent-control/commit/67f8fc1a3dd81d7516f8961a2af7372bfd137681)), closes [#112](https://github.com/agentcontrol/agent-control/issues/112)
+* **sdk:** skip evaluation when no controls apply ([#124](https://github.com/agentcontrol/agent-control/issues/124)) ([d2cd9f9](https://github.com/agentcontrol/agent-control/commit/d2cd9f9aaa8a20df79e6b2bdd9a20263f510946e))
+* **server:** escape ILIKE pattern in evaluator-configs list endpoint ([#108](https://github.com/agentcontrol/agent-control/issues/108)) ([cb6e89f](https://github.com/agentcontrol/agent-control/commit/cb6e89f134bd8cea944bbb99419b3d4a26f98d50))
+* **server:** reject empty string list evaluator values ([#121](https://github.com/agentcontrol/agent-control/issues/121)) ([2c55d27](https://github.com/agentcontrol/agent-control/commit/2c55d27fc4e1b2b3235a2b672226e77f3365c1bf))
+* **server:** revert unwanted changes in server config ([#117](https://github.com/agentcontrol/agent-control/issues/117)) ([d92e168](https://github.com/agentcontrol/agent-control/commit/d92e168fe1c771f7f9824dc29d8d4b1a71501d8e))
+* **ui:** create flow - name trimming issue ([#93](https://github.com/agentcontrol/agent-control/issues/93)) ([1a9759d](https://github.com/agentcontrol/agent-control/commit/1a9759d0b187cf5ac3e846a61cb5b82ec9d5e2e0))
+
 ## [1.1.0](https://github.com/agentcontrol/agent-control/compare/ts-sdk-v1.0.1...ts-sdk-v1.1.0) (2026-03-11)
 
 ### Features
