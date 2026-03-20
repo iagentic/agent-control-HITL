@@ -2,6 +2,40 @@
 
 <!-- version list -->
 
+## v7.1.0 (2026-03-20)
+
+### Bug Fixes
+
+- **server**: Require control data on create
+  ([#139](https://github.com/agentcontrol/agent-control/pull/139),
+  [`3e4935b`](https://github.com/agentcontrol/agent-control/commit/3e4935b1efadfa542b061543e1ed3d2070236740))
+
+- **server**: Separate compose host port overrides from runtime ports
+  ([#137](https://github.com/agentcontrol/agent-control/pull/137),
+  [`da05f98`](https://github.com/agentcontrol/agent-control/commit/da05f98f39703a8119861daa72fcf57d30f795f6))
+
+### Chores
+
+- **release**: Ts sdk v2.0.0 [skip ci]
+  ([`8b6e3f5`](https://github.com/agentcontrol/agent-control/commit/8b6e3f5f7c188da97a9ceb0e2123618711b90e12))
+
+- **sdk-ts**: Regenerate generated client for release
+  ([#133](https://github.com/agentcontrol/agent-control/pull/133),
+  [`6f95035`](https://github.com/agentcontrol/agent-control/commit/6f9503542165182c75791cd7db5d0bcba2132009))
+
+### Documentation
+
+- **docs**: Add in-repo testing guide
+  ([#134](https://github.com/agentcontrol/agent-control/pull/134),
+  [`4ff2a0a`](https://github.com/agentcontrol/agent-control/commit/4ff2a0a2ea36811d2198fb54fed1145df555d355))
+
+### Features
+
+- **examples**: Feat/crewai examples expansion port
+  ([#142](https://github.com/agentcontrol/agent-control/pull/142),
+  [`905e83b`](https://github.com/agentcontrol/agent-control/commit/905e83b8252e71b2449a156f73c9d97576c017b1))
+
+
 ## v7.0.0 (2026-03-17)
 
 ### Bug Fixes
