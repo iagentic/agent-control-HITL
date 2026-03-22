@@ -24,6 +24,7 @@ import { LoginModal } from '@/core/components/login-modal';
 import { AuthProvider, useAuth } from '@/core/providers/auth-provider';
 import { QueryProvider } from '@/core/providers/query-provider';
 import type { NextPageWithLayout } from '@/core/types/page';
+import { appTheme } from '@/theme';
 
 type AppPropsWithLayout = AppProps & {
   Component: NextPageWithLayout;
@@ -125,7 +126,7 @@ export default function App({ Component, pageProps }: AppPropsWithLayout) {
 
       <ErrorBoundary variant="page">
         <QueryProvider>
-          <MantineProvider defaultColorScheme="auto">
+          <MantineProvider theme={appTheme} defaultColorScheme="auto">
             <Notifications />
             <DatesProvider settings={{ firstDayOfWeek: 0 }}>
               <JupiterThemeProvider>

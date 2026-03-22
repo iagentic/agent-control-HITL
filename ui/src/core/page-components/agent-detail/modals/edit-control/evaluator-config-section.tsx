@@ -17,6 +17,7 @@ import { EvaluatorJsonView } from './evaluator-json-view';
 import type { ConfigViewMode } from './types';
 
 const DEFAULT_HEIGHT = 450;
+const CONTENT_MIN_HEIGHT_EXTRA = 60;
 type ValidationStatus = 'idle' | 'validating' | 'valid' | 'invalid';
 
 type EvaluatorConfigSectionProps = {
@@ -72,6 +73,8 @@ export function EvaluatorConfigSection({
         ? 'red'
         : 'dimmed';
 
+  const contentHeight = height + CONTENT_MIN_HEIGHT_EXTRA;
+
   return (
     <Stack gap="md">
       <Group justify="space-between" align="center">
@@ -91,45 +94,44 @@ export function EvaluatorConfigSection({
             </Group>
           </Anchor>
         </Group>
-        <SegmentedControl
-          value={configViewMode}
-          onChange={handleConfigViewModeChange}
-          disabled={configViewMode === 'json' && !!jsonError}
-          data={[
-            { value: 'form', label: 'Form' },
-            { value: 'json', label: 'JSON' },
-          ]}
-          size="xs"
-        />
+        <Group gap="xs" align="center">
+          {statusLabel ? (
+            <Text size="xs" c={statusColor}>
+              {statusLabel}
+            </Text>
+          ) : null}
+          <SegmentedControl
+            value={configViewMode}
+            onChange={handleConfigViewModeChange}
+            disabled={configViewMode === 'json' && !!jsonError}
+            data={[
+              { value: 'form', label: 'Form' },
+              { value: 'json', label: 'JSON' },
+            ]}
+            size="xs"
+          />
+        </Group>
       </Group>
-      {statusLabel ? (
-        <Text size="xs" c={statusColor}>
-          {statusLabel}
-        </Text>
-      ) : null}
-
       <Paper withBorder radius="sm" p={16}>
-        {configViewMode === 'form' && (
-          <ScrollArea h={height} type="auto">
-            {FormComponent ? (
+        <ScrollArea h={contentHeight} type="always" offsetScrollbars="y">
+          {configViewMode === 'form' ? (
+            FormComponent ? (
               <FormComponent form={evaluatorForm} />
             ) : (
               <Text c="dimmed" ta="center" py="xl">
                 No form available for this evaluator. Use JSON view to
                 configure.
               </Text>
-            )}
-          </ScrollArea>
-        )}
-
-        {configViewMode === 'json' && (
-          <EvaluatorJsonView
-            onValidateConfig={onValidateConfig}
-            onValidationStatusChange={setValidationStatus}
-            height={height}
-            {...jsonViewProps}
-          />
-        )}
+            )
+          ) : (
+            <EvaluatorJsonView
+              onValidateConfig={onValidateConfig}
+              onValidationStatusChange={setValidationStatus}
+              height={height}
+              {...jsonViewProps}
+            />
+          )}
+        </ScrollArea>
       </Paper>
     </Stack>
   );
