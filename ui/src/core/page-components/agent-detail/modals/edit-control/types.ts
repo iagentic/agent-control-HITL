@@ -20,6 +20,7 @@ export type { RegexFormValues } from '@/core/evaluators/regex/types';
 export type { SqlFormValues } from '@/core/evaluators/sql/types';
 
 export type ConfigViewMode = 'form' | 'json';
+export type ControlEditorMode = 'form' | 'json';
 
 // Form values type for control definition
 // Uses snake_case to match API field names directly
@@ -56,7 +57,7 @@ export type EditControlProps = {
   onSuccess?: () => void;
 };
 
-export type EvaluatorJsonViewProps = {
+export type JsonEditorViewProps = {
   /** Current JSON text shown in the editor */
   jsonText: string;
   /** Update handler when JSON text changes */
@@ -76,6 +77,12 @@ export type EvaluatorJsonViewProps = {
   validateDebounceMs?: number;
   /** Optional height for the editor area */
   height?: number;
+  /** Optional label for the JSON editor */
+  label?: string;
+  /** Optional tooltip for the JSON editor label */
+  tooltip?: string;
+  /** Optional test id for the textarea */
+  testId?: string;
 };
 
 export type ControlDefinitionFormProps = {
